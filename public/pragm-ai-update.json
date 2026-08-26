@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "version": "0.6.6",
+  "connector": {
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.6.6/pragm_ai_connector.py",
+    "sha256": "01b9a045fd90906a850911341672338fb9040264c825ca9f9da6f158042ac6c7"
+  },
+  "instructions": {
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.6.6/INITIAL_OPTIMIZATION.md",
+    "sha256": "46a1d5eb00321b0256e7ee9e25cd5d14620bc8749b1cd07f826495b25a0916c6"
+  },
+  "skill": {
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.6.6/pragm-ai-updater/SKILL.md",
+    "sha256": "b129d68953adace0e77e49c26d6b353e28c8479df7be1586a322e9bf097826c1"
+  },
+  "signing_key": {
+    "algorithm": "rsa-pkcs1v15-sha256",
+    "key_id": "5627b3c1dd7b622a",
+    "public_key_url": "https://m-pragm-ai.vercel.app/release-public-key.pem"
+  },
+  "signature": {
+    "algorithm": "rsa-pkcs1v15-sha256",
+    "key_id": "5627b3c1dd7b622a",
+    "value": "XM1pw5wN+tG9GgEb1yAMHB0ay3hDqm8hIRXLYb3aS0iIl9XvbTrC2EVhrPKsxxEwT8Vm+PPdnhYaeA3OQp8krCGKvJb8RrOQe6y6O4fm4l2NIe5pPjM06ZCkzmKaGMoJkoaXieKcnJsvUphTjLzw51pgt/ae7chpk+fSD4/MpHFrP0nkQCpqmHjMNhUxTuMiGvFaZ/aCSxTzcp+FreTHC6Ss/QrpJWHaf0IAh6ndTGpA6Zes/y/vvPtE9lSxX6Nc6NsdD68H0WeZfEwZDSDVV+JmUXe7jqSQ2Gp115VOlsYYwtsu7Pu07WKc2Os/Awb+VMMVJ3GWSeKXAkIavIijKw7JxG7/2DXcCQJtInVw4asjZs4frjKDMrOMDwB5BCcUTTbSgDPkMlfu4D/+52NabVfHpf5psOsu7+SFEC403DgW1yunsXETpNZ9H3cu8xbNk5f6hh8f7ZpkX9TxswjyDGQumhw2ZN35XNL+Cj+bql9RJ81rijItfAUfVJDZmHgX"
+  }
+}

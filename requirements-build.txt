@@ -1,0 +1,2 @@
+# Release-machine dependency only. The PragmAI user installs no Python packages.
+pyinstaller==6.22.2
