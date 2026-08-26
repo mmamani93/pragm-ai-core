@@ -24,7 +24,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.6.6"
+VERSION = "0.7.0"
 TELEMETRY_VERSION = 4
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
@@ -229,6 +229,74 @@ def install_privacy_notice(mode: str) -> str:
 No enviará prompts, respuestas, comandos, argumentos, archivos, rutas, URLs ni transcripciones.
 El correo autorizado se guardará como identificador del empleado dentro de la empresa configurada.
 {mode_notice}"""
+
+
+def onboarding_endpoint(ingest_endpoint: str) -> str:
+    parsed = urlparse(ingest_endpoint)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.username:
+        raise RuntimeError("The endpoint must be an HTTPS URL without embedded credentials.")
+    return f"{parsed.scheme}://{parsed.netloc}/api/setup/pairings"
+
+
+def onboarding_request(url: str, method: str, body: dict | None = None, secret: str | None = None) -> tuple[int, dict]:
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": f"PragmAI-Setup/{VERSION}",
+    }
+    data = None
+    if body is not None:
+        data = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    if secret:
+        headers["Authorization"] = f"Bearer {secret}"
+    request = Request(url, data=data, method=method, headers=headers)
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read(16_384).decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise RuntimeError("PragmAI onboarding returned an invalid response.")
+            return response.status, payload
+    except HTTPError as error:
+        try:
+            payload = json.loads(error.read(16_384).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        return error.code, payload
+    except (URLError, TimeoutError, OSError) as error:
+        raise RuntimeError("PragmAI onboarding is temporarily unavailable.") from error
+
+
+def enroll_installation(ingest_endpoint: str, employee_id: str, timeout_seconds: int = 10 * 60) -> tuple[str, str, str]:
+    url = onboarding_endpoint(ingest_endpoint)
+    status, pairing = onboarding_request(url, "POST", {"employee_email": employee_id})
+    code = pairing.get("pairing_code") if isinstance(pairing, dict) else None
+    pairing_secret = pairing.get("pairing_secret") if isinstance(pairing, dict) else None
+    if status != 201 or not isinstance(code, str) or not re.fullmatch(r"[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}", code) \
+            or not isinstance(pairing_secret, str) or len(pairing_secret) < 32:
+        raise RuntimeError("PragmAI could not start secure onboarding.")
+
+    print("Código de vinculación:")
+    print(code)
+    print("Abrí el enlace de invitación que recibiste por email y autorizá este código.")
+    print("Esperando autorización…")
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        time.sleep(max(1, min(int(pairing.get("poll_after_seconds", 2)), 10)))
+        poll_status, result = onboarding_request(url, "GET", secret=pairing_secret)
+        if poll_status == 202 and result.get("status") == "pending":
+            continue
+        if poll_status != 200 or result.get("status") != "authorized":
+            raise RuntimeError("The invitation or pairing code expired. Run pragmai setup again.")
+        company_id = result.get("company_id")
+        authorized_email = str(result.get("employee_email") or "").lower()
+        credential = result.get("ingest_credential")
+        if not isinstance(company_id, str) or not COMPANY_RE.fullmatch(company_id) \
+                or authorized_email != employee_id or not isinstance(credential, str) or len(credential) < 32:
+            raise RuntimeError("The onboarding response was invalid.")
+        return company_id, authorized_email, credential
+    raise RuntimeError("The pairing code expired before it was authorized. Run pragmai setup again.")
 
 
 def atomic_write(path: Path, content: str, mode: int = 0o600) -> None:
@@ -1739,27 +1807,32 @@ def update() -> int:
 def install(args) -> int:
     company_id = args.company_id or os.environ.get("PRAGMAI_COMPANY_ID", "")
     endpoint = args.endpoint or os.environ.get("PRAGMAI_ENDPOINT", DEFAULT_ENDPOINT)
-    if not COMPANY_RE.fullmatch(company_id):
-        raise RuntimeError("company_id must contain 3-64 letters, numbers, underscores or dashes.")
     requested_mode = (args.optimization_mode or "experiment").replace("-", "_")
     print(install_privacy_notice(requested_mode))
     employee_id = (args.employee_email or input("Correo que autorizás como identificador: ")).strip().lower()
     if not EMAIL_RE.fullmatch(employee_id):
         raise RuntimeError("A valid, explicitly authorized employee email is required.")
     if not args.consent_confirmed:
+        company_label = company_id or "la empresa que te invitó"
         consent = input(
-            f"¿Autorizás esta medición para {company_id} usando {employee_id} como identificador? [s/N]: "
+            f"¿Autorizás esta medición para {company_label} usando {employee_id} como identificador? [s/N]: "
         ).strip().lower()
         if consent not in {"s", "si", "sí", "y", "yes"}:
             raise RuntimeError("Installation cancelled because explicit consent was not granted.")
     parsed_endpoint = urlparse(endpoint)
     if parsed_endpoint.scheme != "https" or not parsed_endpoint.netloc or parsed_endpoint.username:
         raise RuntimeError("The endpoint must be an HTTPS URL without embedded credentials.")
-    if not args.ingest_secret_stdin:
-        raise RuntimeError("The company ingest secret must be supplied through standard input.")
-    ingest_secret = sys.stdin.readline().strip()
-    if len(ingest_secret) < 16:
-        raise RuntimeError("The company ingest secret must contain at least 16 characters.")
+    if args.ingest_secret_stdin:
+        if not COMPANY_RE.fullmatch(company_id):
+            raise RuntimeError("company_id must contain 3-64 letters, numbers, underscores or dashes.")
+        ingest_secret = sys.stdin.readline().strip()
+        if len(ingest_secret) < 16:
+            raise RuntimeError("The company ingest secret must contain at least 16 characters.")
+    else:
+        if company_id:
+            raise RuntimeError("--company-id is only valid with the private recovery flow.")
+        enrolled_company, employee_id, ingest_secret = enroll_installation(endpoint, employee_id)
+        company_id = enrolled_company
 
     previous_config = {}
     if CONFIG_FILE.exists():

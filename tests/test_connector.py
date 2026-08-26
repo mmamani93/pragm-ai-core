@@ -197,16 +197,78 @@ class ConnectorTests(unittest.TestCase):
             self.assertEqual(saved["optimization_mode"], "always_on")
             self.assertNotIn("active_experiment", saved)
 
-    def test_install_rejects_command_without_secret_stdin(self):
+    def test_secure_onboarding_uses_email_pairing_without_printing_secrets(self):
+        responses = [
+            (201, {
+                "pairing_code": "ABCD-EFGH",
+                "pairing_secret": "temporary-pairing-secret-0123456789",
+                "poll_after_seconds": 1,
+            }),
+            (202, {"status": "pending", "poll_after_seconds": 1}),
+            (200, {
+                "status": "authorized",
+                "company_id": "InverArg",
+                "employee_email": "employee@example.com",
+                "ingest_credential": "pi_permanent-credential-0123456789",
+            }),
+        ]
+        with (
+            mock.patch.object(connector, "onboarding_request", side_effect=responses) as request,
+            mock.patch.object(connector.time, "sleep"),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            result = connector.enroll_installation(
+                connector.DEFAULT_ENDPOINT, "employee@example.com", timeout_seconds=30
+            )
+        self.assertEqual(result, (
+            "InverArg", "employee@example.com", "pi_permanent-credential-0123456789"
+        ))
+        self.assertIn("ABCD-EFGH", output.getvalue())
+        self.assertNotIn("temporary-pairing-secret", output.getvalue())
+        self.assertNotIn("permanent-credential", output.getvalue())
+        self.assertEqual(request.call_args_list[0].args[1], "POST")
+        self.assertEqual(request.call_args_list[-1].kwargs["secret"], "temporary-pairing-secret-0123456789")
+
+    def test_setup_uses_the_credential_returned_by_secure_onboarding(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            install_file = root / "installed" / "pragm_ai_connector.py"
+            config_file = root / "config" / "config.json"
+            args = connector.parser().parse_args([
+                "setup",
+                "--employee-email", "employee@example.com",
+                "--consent-confirmed",
+                "--client", "codex",
+            ])
+            with (
+                mock.patch.object(connector, "INSTALL_DIR", install_file.parent),
+                mock.patch.object(connector, "INSTALL_FILE", install_file),
+                mock.patch.object(connector, "CONFIG_FILE", config_file),
+                mock.patch.object(connector, "install_codex", return_value=[]),
+                mock.patch.object(connector, "install_updater_skill", return_value=None),
+                mock.patch.object(connector, "enroll_installation", return_value=(
+                    "InverArg", "employee@example.com", "pi_permanent-credential-0123456789"
+                )),
+                mock.patch("builtins.input", side_effect=AssertionError("unexpected input")),
+            ):
+                self.assertEqual(connector.install(args), 0)
+            saved = json.loads(config_file.read_text(encoding="utf-8"))
+            self.assertEqual(saved["company_id"], "InverArg")
+            self.assertEqual(saved["employee_id"], "employee@example.com")
+            self.assertEqual(saved["ingest_secret"], "pi_permanent-credential-0123456789")
+
+    def test_secure_setup_rejects_private_company_argument_before_pairing(self):
         args = connector.parser().parse_args([
-            "install",
+            "setup",
             "--company-id", "InverArg",
             "--employee-email", "employee@example.com",
             "--consent-confirmed",
-            "--client", "codex",
         ])
-        with self.assertRaisesRegex(RuntimeError, "standard input"):
-            connector.install(args)
+        with mock.patch.object(
+            connector, "enroll_installation", side_effect=AssertionError("pairing must not start")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "private recovery flow"):
+                connector.install(args)
 
     def test_codex_config_update_preserves_sections_and_replaces_multiline_prompt(self):
         original = '''model = "gpt-test"
@@ -640,8 +702,8 @@ notify = ["project-specific"]
             self.assertIn(connector.CODEX_RULES_BLOCK_START, instructions)
 
     def test_update_availability_only_reports_a_newer_version(self):
-        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.6.7"}):
-            self.assertEqual(connector.update_availability(), "0.6.7")
+        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.1"}):
+            self.assertEqual(connector.update_availability(), "0.7.1")
         with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": connector.VERSION}):
             self.assertIsNone(connector.update_availability())
 

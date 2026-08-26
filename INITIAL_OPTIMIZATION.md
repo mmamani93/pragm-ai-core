@@ -1,6 +1,6 @@
 # PragmAI Initial Optimization
 
-Instalación guiada para Codex y Claude Code. Un prompt independiente del modelo hace que el asistente lea estas instrucciones completas, instala reglas persistentes y activa telemetría agregada sin contenido. El modo se fija en el prompt privado: `experiment` alterna ON y OFF cada tres días UTC; `always_on` mantiene activas las reglas de eficiencia y la compactación inteligente y queda fuera de esa comparación.
+Procedimiento controlado de transición y recuperación para Codex y Claude Code. La instalación normal usa el ejecutable autónomo y `pragmai setup`, con una invitación de un solo uso y una credencial individual revocable. Este documento conserva el flujo privado anterior sólo para recuperar instalaciones mientras termina la migración de los pilotos existentes.
 
 ## Índice
 
@@ -29,11 +29,11 @@ PragmAI registra estadísticas técnicas del uso del asistente, no la conversaci
 
 No incluye el pedido real, la respuesta, archivos, comandos, rutas, enlaces ni nombres concretos de herramientas.
 
-La entrega vigente se hace mediante un único prompt privado generado desde la plantilla canónica. Los ZIP antiguos sólo conservan compatibilidad histórica. Intervienen cuatro componentes verificables:
+La entrega normal se hace con el ejecutable autónomo publicado para cada plataforma. El prompt privado se reserva para transición o recuperación. En ese mecanismo intervienen cuatro componentes verificables:
 
 1. `README.md`, guía humana con el prompt de inicio;
 2. `INITIAL_OPTIMIZATION.md`, estas instrucciones;
-3. `pragm_ai_connector.py`, conector determinístico y autocontenido PragmAI `0.6.6`;
+3. `pragm_ai_connector.py`, conector determinístico y autocontenido PragmAI `0.7.0`;
 4. `skills/pragm-ai-updater/`, skill que permite comprobar e instalar actualizaciones verificadas después de la instalación.
 
 Separarlos permite revisar, probar y verificar el programa como código. Incrustarlo dentro del Markdown haría más difícil detectar una sustitución maliciosa y no mejoraría la seguridad.
@@ -51,7 +51,7 @@ No modificarlo durante el alta. No es una contraseña, pero determina a qué emp
 El conector oficial de esta entrega debe tener este SHA-256:
 
 ```text
-50a461a80a0e5393622c1fb98b4b1e8fccaa801cf28d507989766726580cbf10
+f0e1e7688dcb023564865042c6a1eb26936434a42fad43360e924c15f3a83071
 ```
 
 Mauro debe comunicar el hash también por un canal confiable independiente. Un archivo y un hash reemplazados juntos por un atacante no prueban integridad.
@@ -72,7 +72,9 @@ La autorización debe dejar claro que el correo sí será almacenado como identi
 
 ## Verificación e instalación
 
-La vía única es pegar el prompt completado por Mauro a un asistente de programación local con terminal. El prompt descarga por HTTPS este documento y el conector oficial, obliga a leer el documento completo y verifica el conector antes de ejecutarlo. No usar `curl | sh`, un fork ni un archivo copiado desde un mensaje no verificado.
+La vía normal es instalar el ejecutable oficial y ejecutar `pragmai setup`. El empleado proporciona y autoriza su correo, ve un código público en la terminal y lo autoriza desde el enlace de invitación. La credencial individual se entrega directamente al proceso y queda en la configuración privada local; no aparece en el email, el enlace, el código público ni los argumentos de consola.
+
+La vía de recuperación consiste en pegar el prompt completado por Mauro a un asistente de programación local con terminal. El prompt descarga por HTTPS este documento y el conector oficial, obliga a leer el documento completo y verifica el conector antes de ejecutarlo. No usar `curl | sh`, un fork ni un archivo copiado desde un mensaje no verificado.
 
 Antes de descargar el conector, el asistente comprueba si existe Python 3.9 o posterior y conserva la ruta exacta del intérprete elegido. PragmAI no necesita `pip` ni paquetes de terceros. Si falta Python, instalarlo es un cambio separado que requiere permiso explícito: el consentimiento para telemetría no autoriza por sí solo a modificar el sistema.
 
@@ -90,7 +92,7 @@ En macOS puede usarse:
 
 ```bash
 printf '%s  %s\n' \
-  '50a461a80a0e5393622c1fb98b4b1e8fccaa801cf28d507989766726580cbf10' \
+  'f0e1e7688dcb023564865042c6a1eb26936434a42fad43360e924c15f3a83071' \
   'pragm_ai_connector.py' \
   | /usr/bin/shasum -a 256 --check
 ```
@@ -240,13 +242,13 @@ El asistente del empleado no consulta Supabase, no evalúa sus métricas y no de
 
 ## Reinstalación y rotación
 
-El conector `0.6.6` puede ejecutarse nuevamente desde su ruta instalada. En modo `experiment`, después de cada intercambio comprueba si cambió el bloque UTC de tres días; si cambió, alterna la asignación y aplica la configuración para el intercambio siguiente. El evento recién terminado conserva el flag de la configuración realmente utilizada. En `always_on` no realiza esa rotación.
+El conector `0.7.0` puede ejecutarse nuevamente desde su ruta instalada. En modo `experiment`, después de cada intercambio comprueba si cambió el bloque UTC de tres días; si cambió, alterna la asignación y aplica la configuración para el intercambio siguiente. El evento recién terminado conserva el flag de la configuración realmente utilizada. En `always_on` no realiza esa rotación.
 
 El cambio se solicita íntegramente por chat. El modelo ejecuta `set-optimization-mode always-on` para dejar optimización permanente o `set-optimization-mode experiment` para volver al A/B, únicamente tras una solicitud explícita. El comando conserva empresa, correo, secreto y telemetría. Codex lo opera mediante el mismo conector que usa su hook `notify`; Claude Code mediante el que usa su hook `Stop`. Los hooks son procesos locales determinísticos posteriores al intercambio: no son un cron, no abren otra conversación y no llaman al modelo.
 
-También comprueba, como máximo una vez cada 24 horas de uso, si el manifiesto oficial firmado anuncia una versión superior. Verifica la firma antes de confiar en versión, URLs o hashes. Esta consulta no llama al modelo, no envía telemetría adicional y no instala nada; agrega una indicación al bloque persistente administrado una sola vez por versión. Al comenzar la siguiente tarea o sesión, el modelo informa la actualización en el chat y pide autorización. Sólo si el usuario acepta usa `pragm-ai-updater` en Codex o el subcomando `update` en Claude Code; el actualizador vuelve a verificar la firma, descarga artefactos inmutables de esa versión y comprueba cada SHA-256 antes de reemplazar nada. Al finalizar elimina el aviso y continúa el pedido original. El actualizador conserva empresa, correo autorizado, secreto, modo, configuración base y clientes instalados. Si PragmAI rota el secreto de la empresa, Mauro genera y entrega un nuevo prompt privado personalizado; el empleado no vuelve a escribir el código.
+También comprueba, como máximo una vez cada 24 horas de uso, si el manifiesto oficial firmado anuncia una versión superior. Verifica la firma antes de confiar en versión, URLs o hashes. Esta consulta no llama al modelo, no envía telemetría adicional y no instala nada; agrega una indicación al bloque persistente administrado una sola vez por versión. Al comenzar la siguiente tarea o sesión, el modelo informa la actualización en el chat y pide autorización. Sólo si el usuario acepta usa `pragm-ai-updater` en Codex o el subcomando `update` en Claude Code; el actualizador vuelve a verificar la firma, descarga artefactos inmutables de esa versión y comprueba cada SHA-256 antes de reemplazar nada. Al finalizar elimina el aviso y continúa el pedido original. El actualizador conserva empresa, correo autorizado, secreto, modo, configuración base y clientes instalados. Las instalaciones nuevas usan credenciales individuales. Si una se revoca, Mauro crea una nueva invitación y el empleado vuelve a ejecutar `pragmai setup`. La rotación del secreto empresarial queda limitada a instalaciones antiguas y al flujo privado de recuperación.
 
-La clave puede existir en el prompt privado personalizado que Mauro entrega fuera de Git, y transitar por el contexto del modelo y la entrada estándar del instalador durante el alta o la rotación. Nunca incluirla en el README canónico, telemetría, respuestas o archivos auxiliares. El conector sólo la persiste en su configuración privada.
+En el flujo normal ninguna credencial permanente transita por email, chat, enlace, código público ni argumentos de consola. La clave empresarial sólo puede existir en un prompt privado de recuperación entregado fuera de Git y transitar por la entrada estándar del instalador. Nunca incluirla en el README canónico, telemetría, respuestas o archivos auxiliares. El conector sólo la persiste en su configuración privada.
 
 ## Límite de seguridad
 

@@ -20,7 +20,9 @@ pragmai doctor
 pragmai uninstall
 ```
 
-`setup` installs the local integration and preserves compatible existing configuration. `doctor` performs local checks without reading company analytics or printing credentials. `uninstall` removes only PragmAI-managed changes and restores the captured pre-installation configuration.
+`setup` asks for the employee-authorized email and requests a short-lived pairing. It prints only a public code, which the employee authorizes from the one-use invitation link. The hosted service then delivers an individual revocable credential directly to the executable. No permanent credential appears in email, chat, URLs, or command arguments.
+
+The local connector stores that credential only in its private user configuration and binds every event to the invited company and email. `doctor` performs local checks without reading company analytics or printing credentials. `uninstall` removes only PragmAI-managed changes and restores the captured pre-installation configuration.
 
 ## Build locally
 
