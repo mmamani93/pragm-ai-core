@@ -55,12 +55,31 @@
     "original_compaction_cached_tokens_estimated": 0,
     "original_compaction_output_tokens_estimated": 0
   },
+  "compaction_sensitivity": {
+    "method": "threshold_grid_replay_v1",
+    "coverage": "full_session_to_exchange",
+    "current_threshold_tokens": 127000,
+    "original_threshold_tokens": 258400,
+    "original_threshold_basis": "model_context_window",
+    "checkpoint_tokens_estimated": 25000,
+    "checkpoint_basis": "median_observed_smart_post_input",
+    "model_calls": 1,
+    "actual_model_input_tokens": 60000,
+    "scenarios": [
+      {"threshold_tokens": 77000, "threshold_offset_tokens": -50000, "is_original_limit": false, "model_calls": 1, "model_input_tokens_estimated": 60000, "compactions_estimated": 0, "compaction_input_tokens_estimated": 0, "compaction_cached_tokens_estimated": 0, "compaction_output_tokens_estimated": 0},
+      {"threshold_tokens": 102000, "threshold_offset_tokens": -25000, "is_original_limit": false, "model_calls": 1, "model_input_tokens_estimated": 60000, "compactions_estimated": 0, "compaction_input_tokens_estimated": 0, "compaction_cached_tokens_estimated": 0, "compaction_output_tokens_estimated": 0},
+      {"threshold_tokens": 127000, "threshold_offset_tokens": 0, "is_original_limit": false, "model_calls": 1, "model_input_tokens_estimated": 60000, "compactions_estimated": 0, "compaction_input_tokens_estimated": 0, "compaction_cached_tokens_estimated": 0, "compaction_output_tokens_estimated": 0},
+      {"threshold_tokens": 152000, "threshold_offset_tokens": 25000, "is_original_limit": false, "model_calls": 1, "model_input_tokens_estimated": 60000, "compactions_estimated": 0, "compaction_input_tokens_estimated": 0, "compaction_cached_tokens_estimated": 0, "compaction_output_tokens_estimated": 0},
+      {"threshold_tokens": 177000, "threshold_offset_tokens": 50000, "is_original_limit": false, "model_calls": 1, "model_input_tokens_estimated": 60000, "compactions_estimated": 0, "compaction_input_tokens_estimated": 0, "compaction_cached_tokens_estimated": 0, "compaction_output_tokens_estimated": 0},
+      {"threshold_tokens": 258400, "threshold_offset_tokens": 131400, "is_original_limit": true, "model_calls": 1, "model_input_tokens_estimated": 60000, "compactions_estimated": 0, "compaction_input_tokens_estimated": 0, "compaction_cached_tokens_estimated": 0, "compaction_output_tokens_estimated": 0}
+    ]
+  },
   "config_profile": "smart_100k",
   "compaction_threshold_tokens": 127000,
   "compaction_scope": "body_after_prefix",
   "billing_mode": "subscription",
-  "connector_version": "0.7.3",
-  "telemetry_version": 5,
+  "connector_version": "0.7.4",
+  "telemetry_version": 6,
   "optimization_enabled": true,
   "configured_compaction_threshold_tokens": 100000,
   "config_status": "matched",

@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "version": "0.7.3",
+  "version": "0.7.4",
   "connector": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.3/pragm_ai_connector.py",
-    "sha256": "28fdf1258f8a7863c7de97db07d1778fd86d1902da6bb3d64806a99bc0f6859b"
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.4/pragm_ai_connector.py",
+    "sha256": "39563b2daf608264ccd90c2724c188d16782cf70225d804ab974b4ab64d5da91"
   },
   "instructions": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.3/INITIAL_OPTIMIZATION.md",
-    "sha256": "3a10ae05c9e32501db7b436b3d62b1c603eba38cfee62dea18f90898a0806132"
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.4/INITIAL_OPTIMIZATION.md",
+    "sha256": "f7bdfa0ebb85a655d29600c4fb46ab97f83352474606a1e1a860221c6d80a982"
   },
   "skill": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.3/pragm-ai-updater/SKILL.md",
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.4/pragm-ai-updater/SKILL.md",
     "sha256": "b129d68953adace0e77e49c26d6b353e28c8479df7be1586a322e9bf097826c1"
   },
   "signing_key": {
@@ -21,6 +21,6 @@
   "signature": {
     "algorithm": "rsa-pkcs1v15-sha256",
     "key_id": "5627b3c1dd7b622a",
-    "value": "E6z+QDriiBp3VUpM+hcblmX8xkAmO7vRWaqByImbMMsMz5a9AKkjpgqqsdfzf/A7YEOvc3k8wLG5Nob0RAtJd2e52a3lWk1Kk5LnpTUOEY0P55c17WcsdRu69MynP1Iat8iY0glxBkDcJsJTp9w35PouAoMjXe6GxgDVp+yV/bXucM9BeqeCP0SMER7zbKp8mJK3a+WAno2kaP63T7ABEoS6FKvneQktt2oRN7wLns4YY3SH5DzQ0OLtc845X9o7eoWAf3p0E6AtGmD5i2FRdLySkG/Z0CVi+wobGPT+2669KRY25gqpFDhxHl4NEQeVxNZP1wqCcKChp7+U+7Fe3QeK80c8U3T+usbnkQbQ8Kymbbi0OSTtUMPgByGEgmrmfdwTTCYb3na2WJy0IJFO58Z33WQJm320Zznwd+LBiBn7Rc+uEj7URBn4rx0x/tWFvOPEE93JX5uNXeqLRPFLtfzUlyebxvjU7fe4fD4CyXhDDXAgtGOjYRElJ3uVPBiI"
+    "value": "dIdFprzH3ZN3M2CFGCyTJbk+DZWBQx0sMFHgCJ0urQcaxonbXaaJjOZ71hEQSDcvGulFOsU1j4cIqPEn9ITBYkUTF5a9nqrrE+NXChb0WmQ9NCaFaiQDioGanPfJBXh4UlwJPYp/5To1GD+qi2V2dVWrUe4Zk2YDQj/M1O9mXtaqIKzgfONWsxI3mvhguWdFR1At1x+u+pcSrgyttJKbUfPz8hQuGzKJNc4LiUu/nxb8ku1m9UaYCil7bt/FGoGALPrS0G7JQVd+6EiNhdJ3+vgtbPHkpsfnm32jAGEkNle7mrfR/FgVqP/1Yt96m6DWAK2dROxLTgt95yAiwwErrO2HImsUSxKeMUUmtJhd9gVjwdGSALpdh4WSNM/HvJYtN4+ApfqDj4fYfQx/+h+hZ3dUxaA3uPkOPTLH/uKsbGw7QUK+oQpbsnHsvukqLhNvvknkR+igtZw4UWD/xVAFQVECMtDFb8s0xBtm1BM3O5p6NvriTX0bFxsdcOG/7iuq"
   }
 }

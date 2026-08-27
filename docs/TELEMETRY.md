@@ -48,6 +48,7 @@ PragmAI Core does not emit automation scores, recommendations, quality judgments
 | `continuation_model_calls` | Continuation calls observed inside the exchange. |
 | `compaction_measurements` | Closed numeric measurements around observed compacting boundaries. Empty when no boundary is measurable. |
 | `compaction_counterfactual` | Optional Codex v5 aggregate that replays the technical context trajectory against the original compaction threshold. It contains method, coverage, threshold and checkpoint bases, aggregate input, and estimated original compaction counters for the current exchange. It is emitted only in permanently enabled mode when the local session has enough compacting evidence. |
+| `compaction_sensitivity` | Optional Codex v6 aggregate that deterministically replays a closed grid at the current threshold, ±25,000 and ±50,000 tokens, plus the original limit. It contains only scenario totals and labeled threshold/checkpoint bases, including a profile checkpoint estimate for sessions that never compacted. |
 | `config_profile` | Closed public name of the active local profile. |
 | `compaction_threshold_tokens`, `compaction_scope` | Effective observed threshold and scope. |
 | `configured_compaction_threshold_tokens` | Threshold requested by the managed configuration. |
@@ -56,7 +57,7 @@ PragmAI Core does not emit automation scores, recommendations, quality judgments
 | `billing_mode` | Subscription, API, or unknown; it is not a price or charge. |
 | `recurrence_key` | HMAC-derived shape identifier. It cannot be reversed into the source text and is not a session identifier. |
 
-The v5 counterfactual reads the full Codex technical session only transiently. The session identifier, call sequence, source records, and conversation content never enter the event. The hosted service values this numeric aggregate and labels the result as an inferred longitudinal estimate rather than an observed charge or causal experiment.
+The v5 counterfactual and v6 sensitivity grid read the full Codex technical session only transiently. The session identifier, call sequence, source records, and conversation content never enter the event. The grid runs entirely as deterministic local software and does not call the model. The hosted service values these numeric aggregates and labels the results as inferred longitudinal estimates rather than observed charges or causal experiments.
 
 ## Explicitly forbidden
 

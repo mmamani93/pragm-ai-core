@@ -413,7 +413,7 @@ notify = ["project-specific"]
         self.assertEqual(event["config_profile"], "smart_100k")
         self.assertEqual(event["compaction_threshold_tokens"], 127_000)
         self.assertEqual(event["compaction_scope"], "body_after_prefix")
-        self.assertEqual(event["telemetry_version"], 5)
+        self.assertEqual(event["telemetry_version"], 6)
         self.assertEqual(event["experiment_id"], connector.EXPERIMENT_ID)
         self.assertEqual(event["experiment_unit_id"], "eu_" + "aa" * 16)
         self.assertTrue(event["optimization_enabled"])
@@ -493,6 +493,52 @@ notify = ["project-specific"]
         self.assertEqual(result["original_model_input_tokens_estimated"], 490_000)
         self.assertEqual(result["original_compactions_estimated"], 1)
         self.assertEqual(result["original_compaction_input_tokens_estimated"], 230_000)
+        self.assertNotIn("session_id", json.dumps(result))
+
+    def test_codex_simulates_threshold_grid_without_observed_compaction(self):
+        def usage(value):
+            return {
+                "type": "event_msg",
+                "payload": {"type": "token_count", "info": {"last_token_usage": {
+                    "input_tokens": value,
+                    "cached_input_tokens": value,
+                    "output_tokens": 1,
+                }}},
+            }
+
+        records = [
+            usage(20_000),
+            {"type": "turn_context", "payload": {"turn_id": "current"}},
+            usage(70_000), usage(90_000),
+        ]
+        config = {
+            **self.config,
+            "optimization_mode": "always_on",
+            "baseline_codex": {
+                "model_auto_compact_token_limit": 230_000,
+                "model_auto_compact_token_limit_scope": "total",
+                "compact_prompt": None,
+            },
+        }
+        result = connector.codex_compaction_sensitivity(records, 1, 3, config)
+        self.assertEqual(result["checkpoint_tokens_estimated"], 10_000)
+        self.assertEqual(result["checkpoint_basis"], "profile_checkpoint_target")
+        self.assertEqual(result["actual_model_input_tokens"], 160_000)
+        self.assertEqual(len(result["scenarios"]), 6)
+        minus_50k = next(
+            item for item in result["scenarios"]
+            if item["threshold_offset_tokens"] == -50_000
+        )
+        self.assertEqual(minus_50k["threshold_tokens"], 77_000)
+        self.assertEqual(minus_50k["compactions_estimated"], 1)
+        self.assertEqual(minus_50k["model_input_tokens_estimated"], 100_000)
+        current = next(
+            item for item in result["scenarios"]
+            if item["threshold_offset_tokens"] == 0
+        )
+        self.assertEqual(current["compactions_estimated"], 0)
+        self.assertEqual(current["model_input_tokens_estimated"], 160_000)
+        self.assertTrue(next(item for item in result["scenarios"] if item["is_original_limit"]))
         self.assertNotIn("session_id", json.dumps(result))
 
     def test_codex_discards_internal_review_events(self):
@@ -740,8 +786,8 @@ notify = ["project-specific"]
             self.assertIn(connector.CODEX_RULES_BLOCK_START, instructions)
 
     def test_update_availability_only_reports_a_newer_version(self):
-        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.4"}):
-            self.assertEqual(connector.update_availability(), "0.7.4")
+        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.5"}):
+            self.assertEqual(connector.update_availability(), "0.7.5")
         with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": connector.VERSION}):
             self.assertIsNone(connector.update_availability())
 

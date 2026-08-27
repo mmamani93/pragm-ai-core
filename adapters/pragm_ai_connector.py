@@ -24,8 +24,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.3"
-TELEMETRY_VERSION = 5
+VERSION = "0.7.4"
+TELEMETRY_VERSION = 6
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
 OPTIMIZATION_MODES = {"experiment", "always_on"}
@@ -729,6 +729,150 @@ def codex_compaction_counterfactual(
     }
 
 
+def codex_compaction_sensitivity(
+    records: list[dict], turn_start: int, turn_end: int, config: dict
+) -> dict | None:
+    """Replay a closed threshold grid locally and emit only aggregate scenario totals."""
+    if optimization_mode(config) != "always_on":
+        return None
+    reference = codex_original_threshold(records, turn_end, config)
+    if not reference:
+        return None
+    original_threshold, original_threshold_basis = reference
+    markers = compaction_markers(records, 0, turn_end)
+    usage_entries = [
+        (index, usage) for index, record in enumerate(records[:turn_end + 1])
+        if real_usage(usage := codex_usage(record))
+    ]
+    if not usage_entries:
+        return None
+
+    first_post_by_marker = {}
+    for position, marker in enumerate(markers):
+        next_marker = markers[position + 1] if position + 1 < len(markers) else turn_end + 1
+        first_post = next((
+            (index, usage) for index, usage in usage_entries
+            if marker < index < next_marker
+        ), None)
+        if first_post:
+            first_post_by_marker[marker] = first_post
+    checkpoint_candidates = [
+        integer(usage.get("input_tokens"))
+        for _, usage in first_post_by_marker.values()
+        if integer(usage.get("input_tokens"))
+    ]
+    if checkpoint_candidates:
+        ordered = sorted(checkpoint_candidates)
+        middle = len(ordered) // 2
+        checkpoint = (
+            ordered[middle]
+            if len(ordered) % 2
+            else round((ordered[middle - 1] + ordered[middle]) / 2)
+        )
+        checkpoint_basis = "median_observed_smart_post_input"
+    else:
+        checkpoint = COMPACTION_POLICY["checkpoint_target_tokens"]
+        checkpoint_basis = "profile_checkpoint_target"
+
+    markers_before_usage = {}
+    previous_usage_index = -1
+    for usage_index, _ in usage_entries:
+        markers_before_usage[usage_index] = [
+            marker for marker in markers if previous_usage_index < marker < usage_index
+        ]
+        previous_usage_index = usage_index
+
+    def replay(threshold: int) -> dict:
+        scenario_previous = actual_previous = actual_cached_previous = None
+        event_input = event_compactions = event_compaction_input = 0
+        event_compaction_cached = event_compaction_output = event_calls = 0
+        for index, usage in usage_entries:
+            actual = integer(usage.get("input_tokens"))
+            actual_cached = min(integer(usage.get("cached_input_tokens")), actual)
+            actual_compacted = bool(markers_before_usage.get(index))
+            if scenario_previous is None:
+                scenario = actual
+            else:
+                growth = (
+                    max(actual - checkpoint, 0)
+                    if actual_compacted
+                    else max(actual - (actual_previous or 0), 0)
+                )
+                candidate = scenario_previous + growth
+                if candidate >= threshold:
+                    if index >= turn_start:
+                        event_compactions += 1
+                        event_compaction_input += threshold
+                        prior_ratio = (
+                            (actual_cached_previous or 0) / actual_previous
+                            if actual_previous else 0
+                        )
+                        event_compaction_cached += round(threshold * prior_ratio)
+                        event_compaction_output += checkpoint
+                    scenario = checkpoint + growth
+                else:
+                    scenario = candidate
+            if index >= turn_start:
+                event_calls += 1
+                event_input += scenario
+            scenario_previous = scenario
+            actual_previous = actual
+            actual_cached_previous = actual_cached
+        return {
+            "model_input_tokens_estimated": event_input,
+            "compactions_estimated": event_compactions,
+            "compaction_input_tokens_estimated": event_compaction_input,
+            "compaction_cached_tokens_estimated": min(
+                event_compaction_cached, event_compaction_input
+            ),
+            "compaction_output_tokens_estimated": event_compaction_output,
+            "model_calls": event_calls,
+        }
+
+    current_threshold = COMPACTION_POLICY["effective_total_target_tokens"]
+    scenario_specs = [
+        (current_threshold + offset, offset, False)
+        for offset in (-50_000, -25_000, 0, 25_000, 50_000)
+    ]
+    original_match = next((
+        index for index, (threshold, _, _) in enumerate(scenario_specs)
+        if threshold == original_threshold
+    ), None)
+    if original_match is None:
+        scenario_specs.append((original_threshold, original_threshold - current_threshold, True))
+    else:
+        threshold, offset, _ = scenario_specs[original_match]
+        scenario_specs[original_match] = (threshold, offset, True)
+
+    scenarios = []
+    for threshold, offset, is_original in sorted(scenario_specs):
+        if threshold <= checkpoint:
+            continue
+        scenarios.append({
+            "threshold_tokens": threshold,
+            "threshold_offset_tokens": offset,
+            "is_original_limit": is_original,
+            **replay(threshold),
+        })
+    event_usages = [usage for index, usage in usage_entries if index >= turn_start]
+    if not event_usages:
+        return None
+    return {
+        "method": "threshold_grid_replay_v1",
+        "coverage": "full_session_to_exchange",
+        "current_threshold_tokens": current_threshold,
+        "original_threshold_tokens": original_threshold,
+        "original_threshold_basis": original_threshold_basis,
+        "checkpoint_tokens_estimated": checkpoint,
+        "checkpoint_basis": checkpoint_basis,
+        "model_calls": len(event_usages),
+        "actual_model_input_tokens": sum(
+            integer(usage.get("input_tokens")) for usage in event_usages
+        ),
+        "scenarios": scenarios,
+    }
+
+
 def codex_configuration_status(optimization_enabled: bool, config: dict) -> dict:
     try:
         text = (Path.home() / ".codex" / "config.toml").read_text(encoding="utf-8")
@@ -935,6 +1079,9 @@ def codex_event(payload: dict, config: dict, sessions_root: Path | None = None) 
         "continuation_model_calls": continuation_calls,
         "compaction_measurements": compaction_measurements,
         "compaction_counterfactual": codex_compaction_counterfactual(
+            records, turn_start, turn_end, config
+        ) if optimization_enabled else None,
+        "compaction_sensitivity": codex_compaction_sensitivity(
             records, turn_start, turn_end, config
         ) if optimization_enabled else None,
         "config_profile": CONFIG_PROFILE if optimization_enabled else "baseline",
