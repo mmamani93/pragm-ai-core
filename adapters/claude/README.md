@@ -29,7 +29,7 @@ El hook `Stop` lee el último intercambio humano del transcript que Claude Code 
 
 ## Compactación
 
-El conector `0.6.6` puede usar `experiment` o `always_on`. En el experimento, ON agrega instrucciones persistentes de checkpoint de hasta 10.000 tokens y configura `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` en 64 % sobre una ventana de referencia de 200.000 tokens; OFF restaura el valor previo y omite las reglas de optimización. `always_on` mantiene permanentemente la configuración ON y queda fuera del A/B. La instalación usa el Python activo y funciona en Windows, macOS y Linux, también cuando Claude Code se ejecuta dentro de Warp.
+El conector `0.7.3` puede usar `experiment` o `always_on`. En el experimento, ON agrega instrucciones persistentes de checkpoint de hasta 10.000 tokens y configura `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` en 64 % sobre una ventana de referencia de 200.000 tokens; OFF restaura el valor previo y omite las reglas de optimización. `always_on` mantiene permanentemente la configuración ON y queda fuera del A/B. La instalación usa el Python activo y funciona en Windows, macOS y Linux, también cuando Claude Code se ejecuta dentro de Warp.
 
 El usuario cambia el modo pidiéndoselo al modelo en el chat. Tras una solicitud explícita, el modelo ejecuta `set-optimization-mode always-on` o `set-optimization-mode experiment` sobre el conector instalado. El hook `Stop` sigue ejecutándose al finalizar cada intercambio para enviar telemetría y buscar actualizaciones; sólo en modo experimental rota la configuración cuando cambia el bloque UTC de tres días. No es un cron ni una llamada adicional al modelo.
 
@@ -70,7 +70,7 @@ La única identidad personal admitida es el correo que el propio empleado autori
 
 Una instalación queda aprobada sólo después de reiniciar Claude Code, completar un intercambio humano y confirmar una única fila sin contenido bajo empresa y correo correctos. La captura y la compactación son validaciones separadas: una compactación requiere suficiente contexto para poder observarse.
 
-Confirmar además `telemetry_version=4`, `connector_version=0.6.6`, el estado de configuración, los conteos por familia y `tool_result_characters`. Exigir asignación completa en `experiment`; en `always_on`, confirmar `optimization_enabled=true` y ausencia de identificadores experimentales. Las estimaciones económicas se calculan en el servidor; no se aceptan como cargos oficiales informados por Claude Code.
+Confirmar además `telemetry_version=5`, `connector_version=0.7.3`, el estado de configuración, los conteos por familia y `tool_result_characters`. Exigir asignación completa en `experiment`; en `always_on`, confirmar `optimization_enabled=true` y ausencia de identificadores experimentales. La reproducción longitudinal v5 es específica de Codex; Claude conserva las mediciones por compactación disponibles. Las estimaciones económicas se calculan en el servidor y no se aceptan como cargos oficiales informados por Claude Code.
 
 ## Actualización
 

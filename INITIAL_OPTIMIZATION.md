@@ -33,7 +33,7 @@ La entrega normal se hace con el ejecutable autónomo publicado para cada plataf
 
 1. `README.md`, guía humana con el prompt de inicio;
 2. `INITIAL_OPTIMIZATION.md`, estas instrucciones;
-3. `pragm_ai_connector.py`, conector determinístico y autocontenido PragmAI `0.7.2`;
+3. `pragm_ai_connector.py`, conector determinístico y autocontenido PragmAI `0.7.3`;
 4. `skills/pragm-ai-updater/`, skill que permite comprobar e instalar actualizaciones verificadas después de la instalación.
 
 Separarlos permite revisar, probar y verificar el programa como código. Incrustarlo dentro del Markdown haría más difícil detectar una sustitución maliciosa y no mejoraría la seguridad.
@@ -235,14 +235,14 @@ Después de reiniciar el cliente:
 4. confirmar que el modelo no sea `codex-auto-review`;
 5. comprobar que `tokens_input + tokens_output` coincida con el total derivado y que `model_calls` muestre las llamadas internas;
 6. verificar ausencia de texto libre, nombres de herramientas, rutas, URLs e identificadores de sesión;
-7. comprobar telemetría v4, `config_status=matched`, familias locales cerradas y `tool_result_characters`; en `experiment`, exigir asignación completa y perfil coherente con ON/OFF; en `always_on`, exigir ON, `smart_100k` y ausencia de identificadores experimentales;
+7. comprobar telemetría v5, `config_status=matched`, familias locales cerradas y `tool_result_characters`; en `experiment`, exigir asignación completa y perfil coherente con ON/OFF; en `always_on`, exigir ON, `smart_100k`, ausencia de identificadores experimentales y, en Codex cuando exista cobertura, el agregado contrafactual sin identidad de sesión;
 8. registrar solamente aprobado/fallido.
 
 El asistente del empleado no consulta Supabase, no evalúa sus métricas y no decide optimizaciones posteriores. Mauro realiza el análisis con `OPTIMIZATION_EVALUATION.md`.
 
 ## Reinstalación y rotación
 
-El conector `0.7.2` puede ejecutarse nuevamente desde su ruta instalada. En modo `experiment`, después de cada intercambio comprueba si cambió el bloque UTC de tres días; si cambió, alterna la asignación y aplica la configuración para el intercambio siguiente. El evento recién terminado conserva el flag de la configuración realmente utilizada. En `always_on` no realiza esa rotación.
+El conector `0.7.3` puede ejecutarse nuevamente desde su ruta instalada. En modo `experiment`, después de cada intercambio comprueba si cambió el bloque UTC de tres días; si cambió, alterna la asignación y aplica la configuración para el intercambio siguiente. El evento recién terminado conserva el flag de la configuración realmente utilizada. En `always_on` no realiza esa rotación.
 
 El cambio se solicita íntegramente por chat. El modelo ejecuta `set-optimization-mode always-on` para dejar optimización permanente o `set-optimization-mode experiment` para volver al A/B, únicamente tras una solicitud explícita. El comando conserva empresa, correo, secreto y telemetría. Codex lo opera mediante el mismo conector que usa su hook `notify`; Claude Code mediante el que usa su hook `Stop`. Los hooks son procesos locales determinísticos posteriores al intercambio: no son un cron, no abren otra conversación y no llaman al modelo.
 

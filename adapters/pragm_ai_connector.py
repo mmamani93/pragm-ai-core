@@ -24,8 +24,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.2"
-TELEMETRY_VERSION = 4
+VERSION = "0.7.3"
+TELEMETRY_VERSION = 5
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
 OPTIMIZATION_MODES = {"experiment", "always_on"}
@@ -522,6 +522,13 @@ def codex_usage(record: dict) -> dict | None:
     return ((item.get("info") or {}).get("last_token_usage") or {})
 
 
+def codex_context_window(record: dict) -> int:
+    item = record.get("payload") or {}
+    if record.get("type") != "event_msg" or item.get("type") != "token_count":
+        return 0
+    return integer((item.get("info") or {}).get("model_context_window"))
+
+
 def real_usage(usage: dict | None) -> bool:
     return bool(usage and any(integer(usage.get(key)) for key in ("input_tokens", "output_tokens")))
 
@@ -592,6 +599,134 @@ def compaction_measurements_for_codex(
         }
         measurements.append({key: value for key, value in measurement.items() if value is not None})
     return measurements
+
+
+def codex_original_threshold(records: list[dict], turn_end: int, config: dict) -> tuple[int, str] | None:
+    baseline = config.get("baseline_codex")
+    baseline = baseline if isinstance(baseline, dict) else {}
+    configured = integer(baseline.get("model_auto_compact_token_limit"))
+    scope = baseline.get("model_auto_compact_token_limit_scope")
+    if configured:
+        if scope == "body_after_prefix":
+            configured += (
+                COMPACTION_POLICY["effective_total_target_tokens"]
+                - COMPACTION_POLICY["codex_growth_threshold_tokens"]
+            )
+            return configured, "configured_body_plus_policy_prefix"
+        return configured, "configured_threshold"
+    observed = [codex_context_window(record) for record in records[:turn_end + 1]]
+    observed = [value for value in observed if value]
+    return (observed[-1], "model_context_window") if observed else None
+
+
+def codex_compaction_counterfactual(
+    records: list[dict], turn_start: int, turn_end: int, config: dict
+) -> dict | None:
+    """Replay model-call context against the original limit without retaining session identity."""
+    if optimization_mode(config) != "always_on":
+        return None
+    reference = codex_original_threshold(records, turn_end, config)
+    if not reference:
+        return None
+    threshold, threshold_basis = reference
+    markers = compaction_markers(records, 0, turn_end)
+    usage_entries = [
+        (index, usage) for index, record in enumerate(records[:turn_end + 1])
+        if real_usage(usage := codex_usage(record))
+    ]
+    if not usage_entries:
+        return None
+
+    first_post_by_marker = {}
+    for position, marker in enumerate(markers):
+        next_marker = markers[position + 1] if position + 1 < len(markers) else turn_end + 1
+        first_post = next((
+            (index, usage) for index, usage in usage_entries
+            if marker < index < next_marker
+        ), None)
+        if first_post:
+            first_post_by_marker[marker] = first_post
+    checkpoint_candidates = [
+        integer(usage.get("input_tokens"))
+        for _, usage in first_post_by_marker.values()
+        if integer(usage.get("input_tokens"))
+    ]
+    if not checkpoint_candidates:
+        return None
+    ordered_checkpoints = sorted(checkpoint_candidates)
+    middle = len(ordered_checkpoints) // 2
+    checkpoint = (
+        ordered_checkpoints[middle]
+        if len(ordered_checkpoints) % 2
+        else round((ordered_checkpoints[middle - 1] + ordered_checkpoints[middle]) / 2)
+    )
+
+    markers_before_usage = {}
+    previous_usage_index = -1
+    for usage_index, _ in usage_entries:
+        markers_before_usage[usage_index] = [
+            marker for marker in markers if previous_usage_index < marker < usage_index
+        ]
+        previous_usage_index = usage_index
+
+    baseline_previous = actual_previous = actual_cached_previous = None
+    event_actual = event_original = event_calls = 0
+    original_compactions = original_compaction_input = 0
+    original_compaction_cached = original_compaction_output = 0
+
+    for index, usage in usage_entries:
+        actual = integer(usage.get("input_tokens"))
+        actual_cached = min(integer(usage.get("cached_input_tokens")), actual)
+        actual_compacted = bool(markers_before_usage.get(index))
+        if baseline_previous is None:
+            original = actual
+        else:
+            growth = (
+                max(actual - checkpoint, 0)
+                if actual_compacted
+                else max(actual - (actual_previous or 0), 0)
+            )
+            candidate = baseline_previous + growth
+            if candidate >= threshold:
+                if index >= turn_start:
+                    original_compactions += 1
+                    original_compaction_input += threshold
+                    prior_ratio = (
+                        (actual_cached_previous or 0) / actual_previous
+                        if actual_previous else 0
+                    )
+                    original_compaction_cached += round(threshold * prior_ratio)
+                    original_compaction_output += checkpoint
+                original = checkpoint + growth
+            else:
+                original = candidate
+        if index >= turn_start:
+            event_calls += 1
+            event_actual += actual
+            event_original += original
+        baseline_previous = original
+        actual_previous = actual
+        actual_cached_previous = actual_cached
+
+    if not event_calls:
+        return None
+    return {
+        "method": "original_limit_replay_v1",
+        "coverage": "full_session_to_exchange",
+        "original_threshold_tokens": threshold,
+        "threshold_basis": threshold_basis,
+        "checkpoint_tokens_estimated": checkpoint,
+        "checkpoint_basis": "median_observed_smart_post_input",
+        "model_calls": event_calls,
+        "actual_model_input_tokens": event_actual,
+        "original_model_input_tokens_estimated": event_original,
+        "original_compactions_estimated": original_compactions,
+        "original_compaction_input_tokens_estimated": original_compaction_input,
+        "original_compaction_cached_tokens_estimated": min(
+            original_compaction_cached, original_compaction_input
+        ),
+        "original_compaction_output_tokens_estimated": original_compaction_output,
+    }
 
 
 def codex_configuration_status(optimization_enabled: bool, config: dict) -> dict:
@@ -799,6 +934,9 @@ def codex_event(payload: dict, config: dict, sessions_root: Path | None = None) 
         "post_tool_model_calls": post_tool_calls,
         "continuation_model_calls": continuation_calls,
         "compaction_measurements": compaction_measurements,
+        "compaction_counterfactual": codex_compaction_counterfactual(
+            records, turn_start, turn_end, config
+        ) if optimization_enabled else None,
         "config_profile": CONFIG_PROFILE if optimization_enabled else "baseline",
         "compaction_threshold_tokens": (
             COMPACTION_POLICY["effective_total_target_tokens"]

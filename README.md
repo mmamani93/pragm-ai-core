@@ -8,6 +8,8 @@ This repository exists so employees, customers, and auditors can verify exactly 
 
 PragmAI Core may send an employee-authorized email plus technical counters and closed categories. It never sends prompts, responses, transcripts, commands, arguments, tool output, file names, paths, URLs, session identifiers, or individual tool names.
 
+Codex telemetry v5 can also emit a closed numeric counterfactual for the current exchange. It reconstructs the technical context trajectory transiently on the workstation, estimates when the original threshold would have compacted, and discards the source sequence. Only aggregate counters and labeled method/basis values leave the workstation.
+
 See [the telemetry reference](docs/TELEMETRY.md) and [a synthetic complete event](examples/telemetry-event.json).
 
 ## Commands
