@@ -24,7 +24,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 TELEMETRY_VERSION = 4
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
