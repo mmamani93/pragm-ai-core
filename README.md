@@ -12,6 +12,14 @@ See [the telemetry reference](docs/TELEMETRY.md) and [a synthetic complete event
 
 ## Commands
 
+On macOS, install the current release from the public Homebrew tap:
+
+```text
+brew install mmamani93/tap/pragmai
+```
+
+Windows and Linux artifacts are available from the versioned GitHub Release. WinGet remains unavailable until Microsoft accepts the catalog submission; do not present it as an active installation method before then.
+
 After installation, the public interface is:
 
 ```text
