@@ -24,7 +24,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 TELEMETRY_VERSION = 4
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
@@ -279,7 +279,7 @@ def enroll_installation(ingest_endpoint: str, employee_id: str, timeout_seconds:
 
     print("Código de vinculación:")
     print(code)
-    print("Abrí el enlace de invitación que recibiste por email y autorizá este código.")
+    print("Abrí el enlace de invitación que te compartió el administrador y autorizá este código.")
     print("Esperando autorización…")
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:

@@ -702,8 +702,8 @@ notify = ["project-specific"]
             self.assertIn(connector.CODEX_RULES_BLOCK_START, instructions)
 
     def test_update_availability_only_reports_a_newer_version(self):
-        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.1"}):
-            self.assertEqual(connector.update_availability(), "0.7.1")
+        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.2"}):
+            self.assertEqual(connector.update_availability(), "0.7.2")
         with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": connector.VERSION}):
             self.assertIsNone(connector.update_availability())
 
