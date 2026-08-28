@@ -24,9 +24,9 @@ La credencial permanente no aparece en el enlace, el código público, el chat, 
 Comandos operativos:
 
 - `pragmai setup`: vincula e instala;
-- `pragmai doctor`: diagnostica sin consultar Supabase ni exponer credenciales;
-- `pragmai repair`: repara cambios administrados con autorización;
-- `pragmai update`: instala una actualización firmada sólo después de autorización explícita;
+- `pragmai doctor`: diagnostica la configuración, integridad y sincronización sin consultar Supabase ni exponer credenciales;
+- `pragmai check-update`: consulta de sólo lectura el manifiesto firmado;
+- `pragmai repair`: sincroniza la copia privada usada por los hooks y repara cambios administrados con autorización;
 - `pragmai uninstall`: retira únicamente los cambios administrados y restaura configuraciones previas.
 
 ## Reglas permanentes de privacidad
@@ -149,7 +149,7 @@ Como máximo una vez cada 24 horas de uso, el conector puede consultar el manifi
 - no instala nada;
 - agrega un aviso administrado cuando existe una versión superior.
 
-La instalación ocurre sólo si el usuario la autoriza. El actualizador vuelve a comprobar firma y SHA-256 antes de reemplazar archivos, conserva identidad, credencial, modo y configuración base, y mantiene un respaldo recuperable.
+La instalación ocurre sólo si el usuario la autoriza. En el ejecutable autónomo se actualiza primero el paquete o artefacto oficial y después `pragmai repair` sincroniza atómicamente la copia privada usada por los hooks. Se conserva identidad, credencial, modo y configuración base, y se mantiene un respaldo recuperable. `pragmai doctor` exige que ambas copias coincidan en versión e integridad.
 
 Una firma válida protege la cadena de publicación, pero no evita que una persona o malware con control de la cuenta local o privilegios administrativos sustituya programas. Los permisos locales, la autenticación por empresa y las credenciales revocables limitan el riesgo, no lo eliminan.
 

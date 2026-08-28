@@ -70,6 +70,8 @@ class ConnectorTests(unittest.TestCase):
                 "employee_id": "employee@example.com",
                 "fingerprint_key": "11" * 32,
                 "installed_clients": ["codex"],
+                "version": connector.VERSION,
+                "connector_sha256": connector.hashlib.sha256(b"connector").hexdigest(),
             }), encoding="utf-8")
             codex = home / ".codex"
             codex.mkdir()
@@ -86,7 +88,38 @@ class ConnectorTests(unittest.TestCase):
             ):
                 self.assertEqual(connector.doctor(), 0)
             self.assertNotIn("0123456789abcdef", output.getvalue())
-            self.assertIn("7/7 checks passed", output.getvalue())
+            self.assertIn("10/10 checks passed", output.getvalue())
+
+    def test_https_calls_use_the_explicit_trusted_context(self):
+        request = connector.Request("https://m-pragm-ai.vercel.app/api/health")
+        sentinel = object()
+        response = mock.MagicMock()
+        with (
+            mock.patch.object(connector, "trusted_tls_context", return_value=sentinel),
+            mock.patch.object(connector, "urlopen", return_value=response) as opened,
+        ):
+            self.assertIs(connector.open_https(request, 12), response)
+        opened.assert_called_once_with(request, timeout=12, context=sentinel)
+
+    def test_repair_synchronizes_package_managed_standalone_before_reapplying_hooks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "package" / "pragmai"
+            target = root / "managed" / "pragmai"
+            source.parent.mkdir()
+            target.parent.mkdir()
+            source.write_bytes(b"current executable")
+            target.write_bytes(b"old executable")
+            target.chmod(0o700)
+            with (
+                mock.patch.object(connector, "STANDALONE", True),
+                mock.patch.object(connector, "INSTALL_FILE", target),
+                mock.patch.object(connector, "current_artifact_path", return_value=source),
+            ):
+                retained = connector.synchronize_managed_executable()
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            self.assertIsNotNone(retained)
+            self.assertEqual(retained.read_bytes(), b"old executable")
 
     def test_uninstall_restores_prior_codex_and_claude_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -820,8 +853,8 @@ notify = ["project-specific"]
             self.assertIn(connector.CODEX_RULES_BLOCK_START, instructions)
 
     def test_update_availability_only_reports_a_newer_version(self):
-        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.7"}):
-            self.assertEqual(connector.update_availability(), "0.7.7")
+        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.8"}):
+            self.assertEqual(connector.update_availability(), "0.7.8")
         with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": connector.VERSION}):
             self.assertIsNone(connector.update_availability())
 

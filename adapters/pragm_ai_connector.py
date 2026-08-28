@@ -13,6 +13,7 @@ import re
 import secrets
 import shlex
 import shutil
+import ssl
 import subprocess
 import sys
 import time
@@ -24,7 +25,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.6"
+VERSION = "0.7.7"
 TELEMETRY_VERSION = 6
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
@@ -167,6 +168,22 @@ def installed_command(command: str) -> list[str]:
     return [sys.executable, str(INSTALL_FILE), command]
 
 
+def trusted_tls_context() -> ssl.SSLContext:
+    """Use a bundled CA bundle in frozen releases and normal platform trust otherwise."""
+    if STANDALONE:
+        try:
+            import certifi
+        except ImportError:
+            pass
+        else:
+            return ssl.create_default_context(cafile=certifi.where())
+    return ssl.create_default_context()
+
+
+def open_https(request: Request, timeout: int):
+    return urlopen(request, timeout=timeout, context=trusted_tls_context())
+
+
 def is_pragmai_command(value, command: str) -> bool:
     """Recognize current and legacy PragmAI hook commands without executing them."""
     serialized = json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
@@ -183,37 +200,37 @@ description: Update, repair, check, or change the optimization mode of an instal
 
 # PragmAI updater
 
-Use the installed connector as the only update entrypoint. Run it with the same Python interpreter used during installation. On macOS and Linux the usual command is `python3`; on Windows it is commonly `py -3` or `python`.
+Use the official `pragmai` executable as the update entrypoint. Do not inspect the private configuration to find it.
 
 To check the official manifest without installing anything, run the installed connector with:
 
 ```sh
-<python> <installed-connector-path> check-update
+pragmai check-update
 ```
 
-To install an available update, run:
+For an authorized standalone update, update `pragmai` through the official package manager or replace it with the official versioned artifact, then run:
 
 ```sh
-<python> <installed-connector-path> update
+pragmai repair
 ```
 
 To leave the A/B experiment and keep optimization enabled all the time, run:
 
 ```sh
-<python> <installed-connector-path> set-optimization-mode always-on
+pragmai set-optimization-mode always-on
 ```
 
 To participate again in the three-day crossover A/B experiment, run:
 
 ```sh
-<python> <installed-connector-path> set-optimization-mode experiment
+pragmai set-optimization-mode experiment
 ```
 
-Run `update` only after the user explicitly asks to install or repair PragmAI, or explicitly authorizes it in response to the managed chat notice. The notice itself and a request to check do not authorize installation. Use `check-update` to compare against the official release; use `--version` only when the user asks for the locally installed version.
+Install an update or run `repair` only after the user explicitly asks to install or repair PragmAI, or explicitly authorizes it in response to the managed chat notice. The notice itself and a request to check do not authorize installation. Use `check-update` to compare against the official release; use `--version` only when the user asks for the locally installed version.
 
 Change the optimization mode only after an explicit request from the user. `always-on` keeps telemetry active, applies the optimized managed configuration immediately and omits experiment identifiers from later events. `experiment` immediately applies the current deterministic assignment and alternates ON/OFF every three UTC days; later changes are performed by the existing Codex notification hook or Claude Code Stop hook after an exchange. Neither command needs the email or installation code again.
 
-The installer prints the exact connector path. Do not guess it or inspect the private configuration to find it. The updater accepts only the exact official HTTPS origin, requires a release manifest signed by the embedded PragmAI public key, verifies semantic version and every asset SHA-256, rejects unsigned or modified manifests and downgrades, replaces the connector atomically, keeps the existing company identity, authorized employee, secret and installed clients, reapplies only the managed Codex or Claude Code settings, and updates this skill. It does not update silently. Do not read, display, copy, or transmit the private PragmAI configuration file.
+The updater accepts only the exact official HTTPS origin, requires a release manifest signed by the embedded PragmAI public key, verifies semantic version and release hashes, and rejects unsigned or modified manifests and downgrades. `repair` atomically synchronizes the official executable with the private copy used by hooks, retains a recoverable backup when it replaces that copy, preserves company identity, authorized employee, credential, mode and clients, and reapplies only managed settings. It does not update silently. Do not read, display, copy or transmit the private PragmAI configuration file.
 
 For a check, report whether an update exists and do not install it. For an authorized update, report the previous and installed connector versions from the command output, then continue the user's original task. If the installed connector does not support these subcommands, explain that it is a legacy installation. Revoke its old credential, install the current official executable and enroll again with a new temporary invitation and `pragmai setup`.
 
@@ -221,9 +238,9 @@ For a check, report whether an update exists and do not install it. For an autho
 
 A package-manager executable and the private executable invoked by managed hooks are separate installation states. After an authorized Homebrew, WinGet, or equivalent package update, do not report completion from the package-manager version alone. Use the exact managed executable path previously emitted by the installer or already recorded in the managed hook; never guess it or inspect the private PragmAI configuration to find it.
 
-Compare both executable versions. If they differ, treat this as a local synchronization issue, not as a reason to publish another package version. Preserve an adjacent recoverable backup of the old managed executable, atomically replace it with the already verified package-manager executable, and run `repair` from the managed executable. Do not run `setup`, reenroll the employee, or change company identity, authorized email, credential, clients, or optimization mode.
+After updating the official executable, run `pragmai repair`. It compares and synchronizes the private copy automatically. Do not run `setup`, reenroll the employee, or change company identity, authorized email, credential, clients or optimization mode.
 
-An update is complete only when the package-manager and managed executables report the same version, their SHA-256 hashes match, and `doctor` run from the managed executable passes every check. If the standalone `update` command directs the user back to the official installer, do not treat that message as successful synchronization.
+An update is complete only when `pragmai doctor` confirms the configured version, private-copy integrity, package/hook synchronization and every client check. If the standalone `update` command directs the user back to the official package or artifact, do not treat that message as successful synchronization.
 '''
 
 def install_privacy_notice(mode: str) -> str:
@@ -259,7 +276,7 @@ def onboarding_request(url: str, method: str, body: dict | None = None, secret: 
         headers["Authorization"] = f"Bearer {secret}"
     request = Request(url, data=data, method=method, headers=headers)
     try:
-        with urlopen(request, timeout=10) as response:
+        with open_https(request, timeout=10) as response:
             payload = json.loads(response.read(16_384).decode("utf-8"))
             if not isinstance(payload, dict):
                 raise RuntimeError("PragmAI onboarding returned an invalid response.")
@@ -1267,7 +1284,7 @@ def send_event(event: dict, config: dict) -> None:
         "User-Agent": f"PragmAI-Connector/{VERSION}",
     })
     try:
-        with urlopen(request, timeout=15) as response:
+        with open_https(request, timeout=15) as response:
             if response.status not in (200, 202):
                 raise RuntimeError(f"PragmAI rejected the event ({response.status}).")
     except HTTPError as error:
@@ -1327,7 +1344,11 @@ def claude_stop() -> int:
 def backup(path: Path) -> Path | None:
     if not path.exists():
         return None
-    destination = path.with_name(f"{path.name}.pragm-ai-backup-{int(time.time())}")
+    suffix = int(time.time())
+    destination = path.with_name(f"{path.name}.pragm-ai-backup-{suffix}")
+    while destination.exists():
+        suffix += 1
+        destination = path.with_name(f"{path.name}.pragm-ai-backup-{suffix}")
     shutil.copy2(path, destination)
     return destination
 
@@ -1645,7 +1666,7 @@ def install_updater_skill(skill_bytes: bytes | None = None) -> Path | None:
 def fetch_bytes(url: str, maximum: int, timeout: int = 20) -> bytes:
     request = Request(url, headers={"User-Agent": f"PragmAI-Updater/{VERSION}"})
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with open_https(request, timeout=timeout) as response:
             declared = integer(response.headers.get("Content-Length"))
             if declared > maximum:
                 raise RuntimeError("The update file is too large.")
@@ -1883,14 +1904,36 @@ def check_update() -> int:
     available = update_availability()
     if available:
         print(f"PragmAI update available: {VERSION} -> {available}.")
-        print("Ask Codex to use pragm-ai-updater or run this connector with: update")
+        if STANDALONE:
+            print("Update with the official package or artifact, then run: pragmai repair")
+        else:
+            print("Ask Codex to use pragm-ai-updater or run this connector with: update")
     else:
         print(f"PragmAI {VERSION} is up to date.")
     return 0
 
 
+def synchronize_managed_executable() -> Path | None:
+    """Synchronize a package-managed standalone with the private executable used by hooks."""
+    if not STANDALONE:
+        return None
+    source = current_artifact_path()
+    target = INSTALL_FILE.resolve()
+    if source == target:
+        return None
+    source_bytes = source.read_bytes()
+    if target.is_file() and hashlib.sha256(target.read_bytes()).digest() == hashlib.sha256(source_bytes).digest():
+        return None
+    retained_backup = backup(target)
+    atomic_write_bytes(target, source_bytes, 0o700)
+    if hashlib.sha256(target.read_bytes()).digest() != hashlib.sha256(source_bytes).digest():
+        raise RuntimeError("The managed executable could not be synchronized safely.")
+    return retained_backup
+
+
 def repair() -> int:
     config = load_config()
+    retained_backup = synchronize_managed_executable()
     clients = config.get("installed_clients")
     if not isinstance(clients, list) or not clients:
         detected = detect_client()
@@ -1907,6 +1950,8 @@ def repair() -> int:
     config["connector_sha256"] = hashlib.sha256(INSTALL_FILE.read_bytes()).hexdigest()
     atomic_write(CONFIG_FILE, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
     print(f"PragmAI {VERSION} verified; {changed_count} managed file(s) checked.")
+    if retained_backup:
+        print("The previous managed executable was retained as a recoverable backup.")
     return 0
 
 
@@ -1945,7 +1990,22 @@ def doctor() -> int:
         record("Private configuration", False)
 
     artifact = INSTALL_FILE
-    record("Installed executable", artifact.is_file() and (os.name == "nt" or os.access(artifact, os.X_OK)))
+    artifact_ready = artifact.is_file() and (os.name == "nt" or os.access(artifact, os.X_OK))
+    record("Installed executable", artifact_ready)
+    record("Managed connector version", config.get("version") == VERSION)
+    expected_hash = str(config.get("connector_sha256", ""))
+    actual_hash = hashlib.sha256(artifact.read_bytes()).hexdigest() if artifact_ready else ""
+    record(
+        "Managed executable integrity",
+        bool(re.fullmatch(r"[a-f0-9]{64}", expected_hash)) and expected_hash == actual_hash,
+    )
+    source = current_artifact_path()
+    record(
+        "Package and hook synchronized",
+        not STANDALONE
+        or source == artifact.resolve()
+        or (source.is_file() and hashlib.sha256(source.read_bytes()).hexdigest() == actual_hash),
+    )
     endpoint = urlparse(str(config.get("endpoint", "")))
     record(
         "Secure endpoint",
@@ -2121,7 +2181,7 @@ def uninstall() -> int:
 def update() -> int:
     if STANDALONE:
         raise RuntimeError(
-            "This preview standalone build is updated by running the official installer again."
+            "Update with the official package or artifact, then run `pragmai repair` to synchronize hooks."
         )
     manifest = fetch_update_manifest()
     target_version = manifest["version"]

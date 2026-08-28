@@ -49,6 +49,8 @@ def main() -> int:
         str(BUILD_DIR),
         "--add-data",
         f"{SKILL_DIR}:skills/pragm-ai-updater",
+        "--collect-data",
+        "certifi",
         str(CONNECTOR),
     ]
     environment = os.environ.copy()
