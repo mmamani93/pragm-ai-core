@@ -183,6 +183,7 @@ class ConnectorTests(unittest.TestCase):
                 mock.patch.object(connector, "INSTALL_DIR", install_file.parent),
                 mock.patch.object(connector, "INSTALL_FILE", install_file),
                 mock.patch.object(connector, "CONFIG_FILE", config_file),
+                mock.patch.object(connector, "detect_clients", return_value=["codex"]),
                 mock.patch.object(connector, "install_codex", return_value=[]),
                 mock.patch.object(connector, "install_updater_skill", return_value=None),
                 mock.patch.object(connector.sys, "stdin", io.StringIO("0123456789abcdef\n")),
@@ -244,6 +245,7 @@ class ConnectorTests(unittest.TestCase):
                 mock.patch.object(connector, "INSTALL_DIR", install_file.parent),
                 mock.patch.object(connector, "INSTALL_FILE", install_file),
                 mock.patch.object(connector, "CONFIG_FILE", config_file),
+                mock.patch.object(connector, "detect_clients", return_value=["codex"]),
                 mock.patch.object(connector, "install_codex", return_value=[]),
                 mock.patch.object(connector, "install_updater_skill", return_value=None),
                 mock.patch.object(connector, "enroll_installation", return_value=(
@@ -818,8 +820,8 @@ notify = ["project-specific"]
             self.assertIn(connector.CODEX_RULES_BLOCK_START, instructions)
 
     def test_update_availability_only_reports_a_newer_version(self):
-        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.6"}):
-            self.assertEqual(connector.update_availability(), "0.7.6")
+        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.7"}):
+            self.assertEqual(connector.update_availability(), "0.7.7")
         with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": connector.VERSION}):
             self.assertIsNone(connector.update_availability())
 
