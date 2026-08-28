@@ -1,145 +1,58 @@
-# PragmAI Initial Optimization
+# PragmAI — reglas administradas y telemetría
 
-Procedimiento controlado de transición y recuperación para Codex y Claude Code. La instalación normal usa el ejecutable autónomo y `pragmai setup`, con una invitación de un solo uso y una credencial individual revocable. Este documento conserva el flujo privado anterior sólo para recuperar instalaciones mientras termina la migración de los pilotos existentes.
+Documento fuente incluido en el release firmado del conector. Define qué instala PragmAI, qué datos procesa y las reglas de optimización que administra. No contiene credenciales ni reemplaza la guía pública de instalación.
 
-## Índice
+## Instalación y consentimiento
 
-- [Qué se medirá](#qué-se-medirá-explicado-de-forma-simple)
-- [Datos fijados por PragmAI](#datos-fijados-por-pragmai-antes-de-entregar-el-prompt)
-- [Instrucciones para el asistente](#instrucciones-para-el-asistente-que-recibe-este-documento)
-- [Verificación e instalación](#verificación-e-instalación)
-- [Reglas iniciales de optimización](#reglas-iniciales-de-optimización)
-- [Compactación inteligente](#compactación-inteligente-de-codex-y-claude-code)
-- [Cómo funciona la captura](#cómo-funciona-la-captura)
-- [Repetibilidad y automatización](#repetibilidad-y-automatización)
-- [Métricas enviadas](#métricas-enviadas)
-- [Validación final](#validación-final)
-- [Reinstalación y rotación](#reinstalación-y-rotación)
-- [Límite de seguridad](#límite-de-seguridad)
+La vía normal es instalar el ejecutable oficial y ejecutar `pragmai setup`. Mauro crea una invitación temporal en la página administrativa y la comparte directamente con el empleado.
 
-## Qué se medirá, explicado de forma simple
+Durante `setup`:
 
-PragmAI registra estadísticas técnicas del uso del asistente, no la conversación. Un registro futuro puede verse así:
+1. el ejecutable detecta Codex, Claude Code o ambos; si no encuentra ninguno, lo informa y termina sin modificar el equipo ni consumir la invitación;
+2. si ambos están instalados, el empleado elige Codex, Claude Code o los dos;
+3. el ejecutable explica los cambios locales y la telemetría;
+4. el empleado autoriza explícitamente el uso de su correo como identificador;
+5. el correo se normaliza a minúsculas y no se usa con otro fin;
+6. el ejecutable muestra un código público temporal;
+7. el empleado lo confirma desde su enlace de invitación;
+8. el servidor entrega una credencial individual y revocable directamente al ejecutable;
+9. se respaldan las configuraciones que cambiarán y se instalan únicamente los hooks elegidos;
+10. `pragmai doctor` verifica el resultado sin mostrar secretos.
 
-- empresa: la empresa asignada por PragmAI;
-- usuario: el correo que el empleado autorizó;
-- tipo de tarea: por ejemplo, análisis de datos;
-- consumo total: por ejemplo, 12.450 tokens;
-- herramientas utilizadas: por ejemplo, lectura de archivos.
+La credencial permanente no aparece en el enlace, el código público, el chat, una URL ni los argumentos. El ejecutable autónomo no requiere Python ni paquetes de terceros en la computadora del empleado.
 
-No incluye el pedido real, la respuesta, archivos, comandos, rutas, enlaces ni nombres concretos de herramientas.
+Comandos operativos:
 
-La entrega normal se hace con el ejecutable autónomo publicado para cada plataforma. El prompt privado se reserva para transición o recuperación. En ese mecanismo intervienen cuatro componentes verificables:
+- `pragmai setup`: vincula e instala;
+- `pragmai doctor`: diagnostica sin consultar Supabase ni exponer credenciales;
+- `pragmai repair`: repara cambios administrados con autorización;
+- `pragmai update`: instala una actualización firmada sólo después de autorización explícita;
+- `pragmai uninstall`: retira únicamente los cambios administrados y restaura configuraciones previas.
 
-1. `README.md`, guía humana con el prompt de inicio;
-2. `INITIAL_OPTIMIZATION.md`, estas instrucciones;
-3. `pragm_ai_connector.py`, conector determinístico y autocontenido PragmAI `0.7.4`;
-4. `skills/pragm-ai-updater/`, skill que permite comprobar e instalar actualizaciones verificadas después de la instalación.
+## Reglas permanentes de privacidad
 
-Separarlos permite revisar, probar y verificar el programa como código. Incrustarlo dentro del Markdown haría más difícil detectar una sustitución maliciosa y no mejoraría la seguridad.
+Estas reglas se instalan en todos los modos y se integran sin borrar instrucciones existentes:
 
-## Datos fijados por PragmAI antes de entregar el prompt
+- nunca incluir prompts, respuestas, comandos, argumentos, nombres de archivos, rutas, URLs, transcripciones, identificadores de sesión ni nombres individuales de herramientas en la telemetría;
+- no exponer la configuración privada ni conservar credenciales fuera del almacenamiento local protegido;
+- no crear historiales locales, colas, CSV analíticos ni archivos para que el modelo procese métricas;
+- transformar la información transitoriamente y enviar sólo métricas técnicas y categorías cerradas;
+- no consultar Supabase ni interpretar analítica empresarial desde el asistente del empleado;
+- comprobar actualizaciones de forma sólo lectura; instalar, reparar o cambiar el modo únicamente tras una solicitud explícita;
+- preservar instrucciones del usuario y del proyecto; prevalece la regla más específica.
 
-Mauro debe reemplazar este valor en la copia destinada a la empresa:
+Si el endpoint no está disponible, el evento se descarta. PragmAI prioriza no acumular datos en la computadora del empleado.
 
-```text
-PRAGMAI_COMPANY_ID="__COMPANY_ID_ASSIGNED_BY_PRAGMAI__"
-```
+## Modos de optimización
 
-No modificarlo durante el alta. No es una contraseña, pero determina a qué empresa se atribuye el evento. El código de ingesta se incorpora al prompt privado personalizado generado para esa empresa; nunca se pega en este documento canónico, GitHub ni el sitio público.
+- `experiment`: alterna ON/OFF en bloques de tres días UTC. La asignación es seudónima y el evento conserva el estado realmente utilizado.
+- `always_on`: mantiene ON y no genera identidad experimental.
 
-El conector oficial de esta entrega debe tener este SHA-256:
+Cambiar de modo requiere autorización explícita. OFF conserva captura, privacidad y actualizaciones; sólo retira las intervenciones de optimización y restaura la configuración previa respaldada.
 
-```text
-f0e1e7688dcb023564865042c6a1eb26936434a42fad43360e924c15f3a83071
-```
+## Reglas activas en ON
 
-Mauro debe comunicar el hash también por un canal confiable independiente. Un archivo y un hash reemplazados juntos por un atacante no prueban integridad.
-
-## Instrucciones para el asistente que recibe este documento
-
-1. Explicar que PragmAI medirá únicamente métricas técnicas y categorías cerradas. No enviar prompts, respuestas, comandos, argumentos, archivos, rutas, URLs, transcripciones, nombres de herramientas individuales ni identificadores de sesión.
-2. Pedir autorización explícita para iniciar la medición y preguntar qué correo laboral o personal autoriza el empleado a usar como `employee_id`.
-3. No continuar si no hay consentimiento explícito o si el correo no fue autorizado para este fin.
-4. Confirmar que `PRAGMAI_COMPANY_ID` ya fue definido por PragmAI y no cambiarlo.
-5. Verificar el conector antes de ejecutarlo. Si el hash no coincide, detenerse; no intentar repararlo, descargar otro archivo ni ignorar la advertencia.
-6. Tomar del prompt privado el código de instalación ya incluido y pasarlo directamente al conector junto con el correo y el consentimiento, sin pedirle al empleado que lo escriba, repetirlo en la respuesta final ni guardarlo en archivos auxiliares.
-7. Explicar que la configuración de optimización alterna entre ON y OFF en bloques de tres días UTC para comparar créditos promedio por intercambio; el empleado no elige el brazo.
-8. Instalar sólo el cliente que realmente utiliza el empleado y reiniciarlo.
-9. Informar a Mauro el resultado aprobado/fallido sin volver a copiar el código ni otros datos privados.
-
-La autorización debe dejar claro que el correo sí será almacenado como identificador del empleado. Es la única excepción de identidad del piloto y debe ser voluntaria y explícita.
-
-## Verificación e instalación
-
-La vía normal es instalar el ejecutable oficial y ejecutar `pragmai setup`. El empleado proporciona y autoriza su correo, ve un código público en la terminal y lo autoriza desde el enlace temporal que Mauro creó en el panel y compartió por un canal de confianza. La credencial individual se entrega directamente al proceso y queda en la configuración privada local; no aparece en el enlace, el código público, el chat ni los argumentos de consola.
-
-La vía de recuperación consiste en pegar el prompt completado por Mauro a un asistente de programación local con terminal. El prompt descarga por HTTPS este documento y el conector oficial, obliga a leer el documento completo y verifica el conector antes de ejecutarlo. No usar `curl | sh`, un fork ni un archivo copiado desde un mensaje no verificado.
-
-Antes de descargar el conector, el asistente comprueba si existe Python 3.9 o posterior y conserva la ruta exacta del intérprete elegido. PragmAI no necesita `pip` ni paquetes de terceros. Si falta Python, instalarlo es un cambio separado que requiere permiso explícito: el consentimiento para telemetría no autoriza por sí solo a modificar el sistema.
-
-Después de recibir ese permiso, el asistente ejecuta por su cuenta la instalación oficial correspondiente y continúa automáticamente:
-
-- Windows: Python Install Manager distribuido por Python Software Foundation mediante python.org, Microsoft Store o WinGet, seguido de un runtime estable;
-- macOS: instalador firmado y notarizado descargado de python.org;
-- Linux: paquete `python3` del gestor oficial de la distribución.
-
-El empleado no copia comandos. Sólo confirma personalmente los diálogos de seguridad, credenciales administrativas o controles de cuentas que el sistema operativo no permite delegar. Si una política corporativa bloquea la instalación, el asistente se detiene e informa el bloqueo; no usa una fuente alternativa, un script remoto ni un instalador no oficial. Una vez instalado, localiza el intérprete aunque la terminal todavía no haya actualizado su `PATH`, comprueba su versión y retoma PragmAI en la misma tarea.
-
-Primero verificar con una herramienta confiable del sistema operativo. No ejecutar el conector para que se verifique a sí mismo: si hubiera sido sustituido, eso le daría ejecución antes de comprobar su integridad.
-
-En macOS puede usarse:
-
-```bash
-printf '%s  %s\n' \
-  'f0e1e7688dcb023564865042c6a1eb26936434a42fad43360e924c15f3a83071' \
-  'pragm_ai_connector.py' \
-  | /usr/bin/shasum -a 256 --check
-```
-
-Continuar únicamente si el resultado exacto es `pragm_ai_connector.py: OK`.
-Después de verificar, evitar cualquier reemplazo o edición del archivo antes de
-ejecutar la instalación.
-
-En Linux usar `sha256sum -c` con la misma huella. En Windows usar `Get-FileHash .\pragm_ai_connector.py -Algorithm SHA256` desde PowerShell y comparar el resultado exacto. El prompt entregado al asistente le exige detectar el sistema y elegir la herramienta correspondiente.
-
-Luego instalar con Python 3. En macOS o Linux suele ser `python3`; en Windows suele ser `py -3` o `python`. El modelo pasa los tres valores ya conversados para completar el alta sin otra interacción. Ejemplo Unix:
-
-```bash
-python3 pragm_ai_connector.py install \
-  --company-id "__COMPANY_ID_ASSIGNED_BY_PRAGMAI__" \
-  --employee-email "<correo autorizado>" \
-  --consent-confirmed \
-  --ingest-secret-stdin
-```
-
-Después de iniciar el proceso interactivamente, el modelo escribe el código ya incluido en el prompt privado únicamente en la entrada estándar y agrega un salto de línea. No debe pedírselo al empleado, incluirlo en el comando, una variable de entorno ni un archivo temporal.
-
-El instalador detecta por sí solo si la computadora usa Codex, Claude Code o ambos. El empleado no elige ni escribe un parámetro de cliente.
-
-El prompt es compatible con cualquier agente de programación que pueda leer archivos y operar la terminal, incluido Claude Code dentro de Warp. Eso no vuelve universal a la captura: si el equipo no tiene Codex ni Claude Code, el asistente debe detenerse porque todavía no existe un hook de telemetría validado para ese cliente.
-
-El instalador:
-
-- copia el conector verificado en el directorio de datos del usuario: `~/.local/share/pragm-ai/` en macOS/Linux o `%LOCALAPPDATA%\PragmAI\` en Windows;
-- guarda URL, empresa, correo autorizado, secreto y clave HMAC en una configuración privada: `~/.config/pragm-ai/config.json` en macOS/Linux o `%LOCALAPPDATA%\PragmAI\config.json` en Windows;
-- conserva una copia recuperable de cada configuración que modifica;
-- integra `notify` en Codex y conserva una notificación previa compatible;
-- integra un hook `Stop` en Claude Code sin activar un exportador OpenTelemetry genérico;
-- conserva las instrucciones existentes e instala reglas administradas persistentes en el archivo global que cada cliente carga al iniciar;
-- asigna un brazo inicial seudónimo y alterna obligatoriamente ON/OFF cada tres días UTC;
-- en ON configura `smart_100k` y un checkpoint objetivo de hasta 10.000 tokens; en OFF restaura la configuración previa capturada y omite las reglas de optimización;
-- instala `pragm-ai-updater` en Codex para futuras actualizaciones explícitas; el conector exige un manifiesto firmado por la clave pública incorporada, verifica después el SHA-256 de cada archivo y contiene una copia exacta del skill.
-
-El archivo local de configuración contiene credenciales operativas, la configuración base necesaria para restaurar OFF, la asignación experimental activa y el estado del chequeo de actualizaciones; no contiene telemetría histórica. No se crea CSV, cola de métricas, base local ni archivo de análisis. Si el endpoint está temporalmente caído, ese evento no se conserva para reintento: se prioriza no acumular datos en la computadora del empleado.
-
-En Codex las reglas se agregan a `~/.codex/AGENTS.override.md` cuando ya existe un override global activo; en caso contrario se usa `~/.codex/AGENTS.md`. En Claude Code se agregan a `~/.claude/CLAUDE.md`. Los bloques están delimitados, son actualizables y preservan el contenido previo. Hay que reiniciar el cliente: desde la sesión siguiente, el modelo recibe estas reglas automáticamente sin volver a pegar toda esta guía.
-
-## Reglas iniciales de optimización
-
-Este bloque se instala únicamente cuando la asignación experimental está ON. Las reglas de privacidad, secreto, análisis central y actualización permanecen en ambos brazos. OFF no significa desinstalar PragmAI: significa medir el comportamiento sin estas intervenciones.
-
-Leer primero las instrucciones existentes del usuario y del proyecto. Integrar este bloque sin borrar preferencias ni reglas más específicas:
+El siguiente bloque se instala únicamente en ON. Se integra con las instrucciones existentes sin reemplazarlas:
 
 ```markdown
 ## Accuracy, token efficiency, and local processing
@@ -154,102 +67,103 @@ Leer primero las instrucciones existentes del usuario y del proyecto. Integrar e
 - Never sacrifice accuracy, safety or task requirements to save tokens.
 ```
 
-No instalar por defecto una base vectorial, SQLite, un modelo generativo local, un router semántico ni una memoria reescrita continuamente. Esas medidas requieren un cuello de botella demostrado y una comparación controlada.
+No instalar por defecto una base vectorial, SQLite, un modelo generativo local, un router semántico ni una memoria reescrita continuamente. Requieren un cuello de botella demostrado y una comparación controlada.
 
-## Compactación inteligente de Codex y Claude Code
+## Compactación administrada
 
-Cuando la asignación está ON, el conector instala:
+En Codex, ON configura:
 
 ```toml
 model_auto_compact_token_limit = 100000
 model_auto_compact_token_limit_scope = "body_after_prefix"
 ```
 
-El checkpoint conserva objetivo, requisitos, instrucciones vigentes, hechos verificados, decisiones, correcciones, cambios, pruebas, bloqueos y próximos pasos; elimina conversación redundante y salidas ya resueltas. El objetivo de 10.000 tokens se refiere al checkpoint, no al total del intercambio y es una instrucción de tamaño, no una garantía exacta.
+El límite se aplica al cuerpo posterior al prefijo fijo, no al contexto total. Puede sobrepasarse alrededor de una transición y una fila puede agregar varias llamadas internas; por eso se miden llamadas, máximos y compactaciones observadas en lugar de inferirlos de una cifra aislada.
 
-En Codex, 100.000 tokens es el crecimiento permitido para el cuerpo de la conversación después del prefijo fijo, no el total efectivo. Con el prefijo observado de este entorno, el objetivo total queda aproximadamente entre 125.000 y 130.000 tokens. No es un máximo rígido: una llamada puede sobrepasarlo alrededor de la transición y una fila suma todas las llamadas internas del intercambio. PragmAI registra `model_calls`, promedio y máximo por llamada, llamadas que superaron el umbral y compactaciones observadas para comprobar el comportamiento real.
+En Claude Code no existe una opción pública equivalente a `body_after_prefix`. PragmAI deriva un disparo aproximado del 64% sobre una ventana de referencia de 200.000 tokens y agrega las instrucciones de checkpoint. Debe validarse en cada entorno real; si el cliente no lo respeta, se informa como no validado.
 
-Telemetría v3 deduplica marcadores equivalentes de una misma compactación y, cuando el cliente brinda datos suficientes, separa contexto previo, checkpoint, primera llamada posterior, cantidad de llamadas posteriores y tokens posteriores. Guarda una sola estructura canónica por compactación; los conteos y totales económicos se derivan centralmente para no duplicar datos.
+El checkpoint objetivo es de hasta 10.000 tokens y conserva:
 
-En Claude Code no existe una opción pública equivalente al alcance `body_after_prefix`. El instalador deriva de la misma política un disparo del 64% sobre una ventana de referencia de 200.000 tokens y agrega las instrucciones de checkpoint a `~/.claude/CLAUDE.md`; esto apunta a unos 127.000 tokens, pero es una aproximación dependiente de la versión y del modelo. La validación real debe confirmar que aparecen límites de compactación en la telemetría; si Claude ignora el override, se informa como no validado en vez de afirmar que funciona.
+- objetivo y requisitos;
+- instrucciones vigentes;
+- hechos verificados y evidencia necesaria;
+- decisiones y correcciones;
+- cambios realizados y pruebas;
+- bloqueos y próximos pasos.
 
-## Cómo funciona la captura
+Elimina conversación redundante y salidas ya resueltas. El tamaño es un objetivo, no una garantía exacta.
+
+## Captura local
 
 ### Codex
 
-Codex ejecuta el conector al terminar un turno. El conector localiza ese turno en la telemetría que ya mantiene el cliente, suma sus llamadas internas y genera un solo evento `user_exchange`. Descarta `codex-auto-review`, actividad interna, turnos sin consumo y cualquier contenido.
+El hook `notify` localiza el intercambio terminado en la telemetría que mantiene el cliente, agrega sus llamadas internas y produce un único evento `user_exchange`. Descarta actividad interna, `codex-auto-review`, turnos sin consumo y todo contenido.
 
 ### Claude Code
 
-Claude Code ejecuta el conector mediante el hook `Stop`. El conector toma únicamente el último intercambio iniciado por una persona, agrega sus llamadas y reduce nombres de herramientas a familias cerradas. Esta integración corresponde a Claude Code; no convierte claude.ai web en un cliente con telemetría exacta.
+El hook `Stop` toma sólo el último intercambio iniciado por una persona, agrega sus llamadas y reduce las herramientas a familias cerradas. Esta integración cubre Claude Code, no claude.ai web.
 
-### En ambos casos
+### Transformaciones comunes
 
-El texto del pedido se usa transitoriamente, en memoria, sólo para:
+El texto de la tarea puede usarse transitoriamente en memoria para asignar `work_domain`, `task_type` y `workflow_pattern` dentro de listas cerradas, y para producir una huella HMAC de la forma normalizada. Ni el texto normalizado ni la clave HMAC salen del equipo.
 
-- elegir `work_domain`, `task_type` y `workflow_pattern` dentro de listas cerradas;
-- estimar un potencial preliminar de automatización con baja confianza;
-- generar una huella HMAC de la forma normalizada de la tarea.
+Las herramientas se reducen a conteos por familias cerradas: `web`, `browser`, `filesystem_read`, `filesystem_write`, `database`, `office_documents`, `image_generation`, `external_app`, `other` y las subfamilias `shell_testing`, `shell_build_deploy`, `shell_version_control`, `shell_database`, `shell_dependency_management`, `shell_data_processing`, `shell_file_inspection` o `shell_general`. Nunca se transmiten nombres, argumentos ni comandos. Los eventos históricos sin evidencia suficiente no se reclasifican.
 
-El texto normalizado y la clave HMAC nunca salen de la computadora. Las herramientas se envían en un único mapa de conteos por familia: `web`, `browser`, `filesystem_read`, `filesystem_write`, `shell`, `database`, `office_documents`, `image_generation`, `external_app` u `other`. Si Codex agrupa varias herramientas dentro de una orquestación programática, el conector inspecciona transitoriamente esa estructura y transmite únicamente esos conteos; nunca transmite nombres, argumentos ni comandos. Los eventos anteriores no pueden reclasificarse y aparecen centralmente como históricos sin clasificar.
-
-El backend vuelve a validar el esquema, autentica el secreto contra el `company_id` y calcula costo, recurrencia y agregados del lado del servidor. Supabase es la única persistencia de métricas y Mauro realiza allí el análisis centralizado.
-
-## Repetibilidad y automatización
-
-Cada huella se cuenta dentro de la misma empresa, empleado y patrón de trabajo. No se almacenan ni la etiqueta duplicada `repeatability` ni un contador acumulado de recurrencia; ambos se derivan al consultar:
+La huella permite contar recurrencia dentro de la misma empresa, empleado y patrón:
 
 - primera observación: `low`;
 - segunda: `medium`;
 - tercera o posterior: `high`.
 
-Esto mide recurrencia observada, no una opinión sobre si la categoría podría repetirse. La huella no revela qué tarea fue ni demuestra que dos intercambios correspondan al mismo proceso de negocio. Mauro entrevista al empleado antes de recomendar una automatización.
+Esto mide similitud técnica observada, no demuestra que exista un proceso automatizable. Mauro valida el contexto con el empleado antes de recomendar cambios.
 
 ## Métricas enviadas
 
-Cuando el cliente las expone:
+Sólo cuando el cliente las expone:
 
+- versión del conector y de telemetría;
+- empresa y correo autorizado;
 - cliente, modelo, razonamiento y perfil;
 - tokens agregados de entrada, salida, caché, escritura de caché y razonamiento;
-- llamadas internas y máximo de entrada por llamada; el promedio se deriva como `tokens_input / model_calls`;
+- cantidad de llamadas internas y máximo de entrada por llamada;
 - llamadas posteriores a herramientas, continuaciones y fallas de caché;
-- conteos por familia de herramientas;
-- duración, mediciones de compactación y llamadas sobre el umbral;
-- contexto previo y posterior a cada compactación, llamadas posteriores y tokens evitados estimados;
-- versión de telemetría, coincidencia técnica entre el perfil declarado y la configuración efectiva y flag ON/OFF; `experiment_id` e identificador HMAC de bloque-usuario sólo cuando la instalación participa del A/B;
-- categorías cerradas de trabajo, recurrencia privada y potencial preliminar de automatización.
+- conteos por familia de herramientas y caracteres agregados de resultados;
+- duración y mediciones técnicas de compactación;
+- configuración declarada frente a la efectiva y estado ON/OFF;
+- identidad experimental seudónima sólo en `experiment`;
+- categorías cerradas de trabajo y recurrencia privada;
+- reproducción y sensibilidad de compactación cuando la versión de telemetría las soporta.
 
-No se inventan métricas ausentes. El costo API equivalente y los créditos se calculan en Vercel con el catálogo versionado; una suscripción plana sigue teniendo como costo real su abono, no el equivalente API de cada turno.
+No se inventan campos ausentes. Los promedios, totales, costos, créditos y recurrencia se derivan centralmente cuando pueden calcularse de datos base. La API acepta algunos campos heredados para compatibilidad, pero los valida y descarta antes de guardar si son redundantes.
 
-No se transmiten ni almacenan por separado categorías y resultados legados, `tokens_total`, listas o totales de herramientas, promedios derivables, contadores de recurrencia, conteos duplicados de compactación, créditos totales ni agregados económicos que ya están dentro de `compaction_measurements`. Los conectores anteriores pueden seguir enviándolos; la API los valida y descarta antes de guardar.
+Los resultados posteriores a una compactación son observados. Tokens evitados, costo de compactar, créditos evitados y ahorro neto son estimaciones contrafactuales del servidor: pueden ser negativos y no son un cobro ni un reintegro oficial del proveedor.
 
-Las llamadas y tokens posteriores a una compactación son observados. Los tokens evitados, el costo de compactar, los créditos evitados y el ahorro neto son estimaciones contrafactuales calculadas en el servidor; pueden ser negativos y no representan un cobro o reintegro oficial del proveedor.
+PragmAI no emite un puntaje de automatización desde el conector. Las recomendaciones requieren análisis central y evidencia empresarial adicional.
 
-## Validación final
+## Actualizaciones y seguridad
+
+Como máximo una vez cada 24 horas de uso, el conector puede consultar el manifiesto oficial. Esa comprobación:
+
+- no llama al modelo ni envía telemetría adicional;
+- verifica la firma antes de confiar en versión, ubicaciones o hashes;
+- no instala nada;
+- agrega un aviso administrado cuando existe una versión superior.
+
+La instalación ocurre sólo si el usuario la autoriza. El actualizador vuelve a comprobar firma y SHA-256 antes de reemplazar archivos, conserva identidad, credencial, modo y configuración base, y mantiene un respaldo recuperable.
+
+Una firma válida protege la cadena de publicación, pero no evita que una persona o malware con control de la cuenta local o privilegios administrativos sustituya programas. Los permisos locales, la autenticación por empresa y las credenciales revocables limitan el riesgo, no lo eliminan.
+
+## Validación
 
 Después de reiniciar el cliente:
 
-1. comprobar `GET https://m-pragm-ai.vercel.app/api/health`;
-2. realizar un único intercambio de prueba iniciado por el empleado;
-3. confirmar en PragmAI que apareció una sola fila bajo empresa y correo correctos;
-4. confirmar que el modelo no sea `codex-auto-review`;
-5. comprobar que `tokens_input + tokens_output` coincida con el total derivado y que `model_calls` muestre las llamadas internas;
-6. verificar ausencia de texto libre, nombres de herramientas, rutas, URLs e identificadores de sesión;
-7. comprobar telemetría v6, `config_status=matched`, familias locales cerradas y `tool_result_characters`; en `experiment`, exigir asignación completa y perfil coherente con ON/OFF; en `always_on`, exigir ON, `smart_100k`, ausencia de identificadores experimentales y, en Codex cuando exista cobertura, los agregados contrafactuales sin identidad de sesión;
-8. registrar solamente aprobado/fallido.
+1. ejecutar `pragmai doctor`;
+2. realizar un intercambio de prueba iniciado por el empleado;
+3. confirmar una sola fila bajo empresa y correo correctos;
+4. reconciliar tokens y llamadas internas;
+5. comprobar la versión de telemetría, la configuración efectiva y el modo;
+6. verificar ausencia de texto libre, nombres individuales de herramientas, comandos, argumentos, rutas, URLs e identificadores de sesión;
+7. en `experiment`, exigir asignación completa; en `always_on`, exigir ON y ausencia de identidad experimental;
+8. registrar sólo aprobado o fallido.
 
-El asistente del empleado no consulta Supabase, no evalúa sus métricas y no decide optimizaciones posteriores. Mauro realiza el análisis con `OPTIMIZATION_EVALUATION.md`.
-
-## Reinstalación y rotación
-
-El conector `0.7.4` puede ejecutarse nuevamente desde su ruta instalada. En modo `experiment`, después de cada intercambio comprueba si cambió el bloque UTC de tres días; si cambió, alterna la asignación y aplica la configuración para el intercambio siguiente. El evento recién terminado conserva el flag de la configuración realmente utilizada. En `always_on` no realiza esa rotación.
-
-El cambio se solicita íntegramente por chat. El modelo ejecuta `set-optimization-mode always-on` para dejar optimización permanente o `set-optimization-mode experiment` para volver al A/B, únicamente tras una solicitud explícita. El comando conserva empresa, correo, secreto y telemetría. Codex lo opera mediante el mismo conector que usa su hook `notify`; Claude Code mediante el que usa su hook `Stop`. Los hooks son procesos locales determinísticos posteriores al intercambio: no son un cron, no abren otra conversación y no llaman al modelo.
-
-También comprueba, como máximo una vez cada 24 horas de uso, si el manifiesto oficial firmado anuncia una versión superior. Verifica la firma antes de confiar en versión, URLs o hashes. Esta consulta no llama al modelo, no envía telemetría adicional y no instala nada; agrega una indicación al bloque persistente administrado una sola vez por versión. Al comenzar la siguiente tarea o sesión, el modelo informa la actualización en el chat y pide autorización. Sólo si el usuario acepta usa `pragm-ai-updater` en Codex o el subcomando `update` en Claude Code; el actualizador vuelve a verificar la firma, descarga artefactos inmutables de esa versión y comprueba cada SHA-256 antes de reemplazar nada. Al finalizar elimina el aviso y continúa el pedido original. El actualizador conserva empresa, correo autorizado, secreto, modo, configuración base y clientes instalados. Las instalaciones nuevas usan credenciales individuales. Si una se revoca, Mauro crea una nueva invitación y el empleado vuelve a ejecutar `pragmai setup`. La rotación del secreto empresarial queda limitada a instalaciones antiguas y al flujo privado de recuperación.
-
-En el flujo normal ninguna credencial permanente transita por chat, enlace, código público ni argumentos de consola. El enlace de invitación sí puede compartirse por un canal de confianza porque contiene un token temporal, de un solo uso y con vencimiento. La clave empresarial sólo puede existir en un prompt privado de recuperación entregado fuera de Git y transitar por la entrada estándar del instalador. Nunca incluirla en el README canónico, telemetría, respuestas o archivos auxiliares. El conector sólo la persiste en su configuración privada.
-
-## Límite de seguridad
-
-La instalación inicial fija por un canal privado la versión inmutable y los hashes tanto de esta guía como del conector, y debe verificarlos antes de leer o ejecutar cualquiera. Después de instalar `0.6.4`, cada actualización exige además un manifiesto firmado por la clave pública incorporada y los hashes de sus tres activos. Un atacante que controle Vercel puede impedir una descarga, pero no producir una actualización aceptada sin la clave privada de release. Los permisos locales reducen cambios accidentales; una persona o malware con control de la cuenta o privilegios de administrador todavía puede sustituir programas locales. El backend limita por separado el daño de una credencial filtrada al vincular cada secreto con una empresa y rechazar campos fuera del esquema.
+La recuperación de una instalación revocada se hace con una nueva invitación y `pragmai setup`. No se recuperan ni redistribuyen credenciales anteriores.

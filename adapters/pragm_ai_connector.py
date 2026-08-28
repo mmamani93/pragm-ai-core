@@ -24,7 +24,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.4"
+VERSION = "0.7.5"
 TELEMETRY_VERSION = 6
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
@@ -100,7 +100,7 @@ CODEX_RULES_BLOCK_END = "<!-- PRAGMAI_RULES_END -->"
 PRAGMAI_CORE_RULES = """## PragmAI managed instructions
 
 - Never include prompts, responses, commands, arguments, file names, paths, URLs, transcripts, session identifiers or individual tool names in PragmAI telemetry.
-- Never expose the private PragmAI configuration. A private personalized installation prompt may contain the company installation code; pass it directly to the installer, never ask the employee to retype it, never repeat it in the response, and never include it in telemetry, versioned documentation or auxiliary files.
+- Never expose the private PragmAI configuration. Permanent credentials must not appear in chat, URLs, command arguments, telemetry, versioned documentation or auxiliary files. Enrollment uses a temporary invitation and `pragmai setup`.
 - The employee assistant must not query Supabase or interpret company analytics; Mauro performs that analysis centrally.
 - Checking for a PragmAI update is read-only. Install an update only after the user explicitly requests it.
 - Preserve existing user and project instructions; more specific instructions continue to apply."""
@@ -215,7 +215,15 @@ Change the optimization mode only after an explicit request from the user. `alwa
 
 The installer prints the exact connector path. Do not guess it or inspect the private configuration to find it. The updater accepts only the exact official HTTPS origin, requires a release manifest signed by the embedded PragmAI public key, verifies semantic version and every asset SHA-256, rejects unsigned or modified manifests and downgrades, replaces the connector atomically, keeps the existing company identity, authorized employee, secret and installed clients, reapplies only the managed Codex or Claude Code settings, and updates this skill. It does not update silently. Do not read, display, copy, or transmit the private PragmAI configuration file.
 
-For a check, report whether an update exists and do not install it. For an authorized update, report the previous and installed connector versions from the command output, then continue the user's original task. If the installed connector does not support these subcommands, explain that this is a legacy installation and use the latest private installation prompt supplied by the PragmAI administrator once; subsequent updates can use this skill.
+For a check, report whether an update exists and do not install it. For an authorized update, report the previous and installed connector versions from the command output, then continue the user's original task. If the installed connector does not support these subcommands, explain that it is a legacy installation. Revoke its old credential, install the current official executable and enroll again with a new temporary invitation and `pragmai setup`.
+
+## Package-manager installations
+
+A package-manager executable and the private executable invoked by managed hooks are separate installation states. After an authorized Homebrew, WinGet, or equivalent package update, do not report completion from the package-manager version alone. Use the exact managed executable path previously emitted by the installer or already recorded in the managed hook; never guess it or inspect the private PragmAI configuration to find it.
+
+Compare both executable versions. If they differ, treat this as a local synchronization issue, not as a reason to publish another package version. Preserve an adjacent recoverable backup of the old managed executable, atomically replace it with the already verified package-manager executable, and run `repair` from the managed executable. Do not run `setup`, reenroll the employee, or change company identity, authorized email, credential, clients, or optimization mode.
+
+An update is complete only when the package-manager and managed executables report the same version, their SHA-256 hashes match, and `doctor` run from the managed executable passes every check. If the standalone `update` command directs the user back to the official installer, do not treat that message as successful synchronization.
 '''
 
 def install_privacy_notice(mode: str) -> str:
@@ -1551,17 +1559,73 @@ def install_claude(config: dict | None = None, optimization_enabled: bool = True
     ]
 
 
-def detect_client(home: Path | None = None) -> str:
+def detect_clients(home: Path | None = None) -> list[str]:
     home = home or Path.home()
     codex_found = (home / ".codex").exists() or shutil.which("codex") is not None
     claude_found = (home / ".claude").exists() or shutil.which("claude") is not None
-    if codex_found and claude_found:
+    return [
+        client
+        for client, found in (("codex", codex_found), ("claude-code", claude_found))
+        if found
+    ]
+
+
+def detect_client(home: Path | None = None) -> str:
+    clients = detect_clients(home)
+    if clients == ["codex", "claude-code"]:
         return "both"
-    if codex_found:
-        return "codex"
-    if claude_found:
-        return "claude-code"
-    raise RuntimeError("No Codex or Claude Code installation was detected.")
+    if clients:
+        return clients[0]
+    raise RuntimeError(
+        "No se detectó Codex ni Claude Code. Instalá al menos uno, comprobá que pueda abrirse "
+        "desde esta terminal y volvé a ejecutar `pragmai setup`. No se realizó ningún cambio."
+    )
+
+
+def select_setup_clients(requested_client: str, home: Path | None = None) -> list[str]:
+    detected = detect_clients(home)
+    if not detected:
+        raise RuntimeError(
+            "No se detectó Codex ni Claude Code. Instalá al menos uno, comprobá que pueda abrirse "
+            "desde esta terminal y volvé a ejecutar `pragmai setup`. No se realizó ningún cambio."
+        )
+
+    labels = {"codex": "Codex", "claude-code": "Claude Code"}
+    print("Clientes compatibles detectados:")
+    for client in detected:
+        print(f"- {labels[client]}")
+
+    requested = (
+        ["codex", "claude-code"]
+        if requested_client == "both"
+        else [requested_client]
+    )
+    if requested_client != "auto":
+        missing = [client for client in requested if client not in detected]
+        if missing:
+            unavailable = ", ".join(labels[client] for client in missing)
+            raise RuntimeError(
+                f"No se puede seleccionar {unavailable} porque no fue detectado en este equipo. "
+                "No se realizó ningún cambio."
+            )
+        return requested
+
+    if len(detected) == 1:
+        print(f"PragmAI se instalará en {labels[detected[0]]}.")
+        return detected
+
+    choices = {
+        "1": ["codex"],
+        "2": ["claude-code"],
+        "3": ["codex", "claude-code"],
+    }
+    while True:
+        answer = input(
+            "¿Dónde querés instalar PragmAI? [1] Codex  [2] Claude Code  [3] Ambos: "
+        ).strip()
+        if answer in choices:
+            return choices[answer]
+        print("Elegí 1, 2 o 3.")
 
 
 def install_updater_skill(skill_bytes: bytes | None = None) -> Path | None:
@@ -2090,6 +2154,7 @@ def update() -> int:
 
 
 def install(args) -> int:
+    selected_clients = select_setup_clients(args.client)
     company_id = args.company_id or os.environ.get("PRAGMAI_COMPANY_ID", "")
     endpoint = args.endpoint or os.environ.get("PRAGMAI_ENDPOINT", DEFAULT_ENDPOINT)
     requested_mode = (args.optimization_mode or "experiment").replace("-", "_")
@@ -2149,10 +2214,7 @@ def install(args) -> int:
         for key in ("baseline_codex", "baseline_codex_notify", "baseline_claude", "chained_notify"):
             if key in previous_config:
                 config[key] = previous_config[key]
-    selected_client = detect_client() if args.client == "auto" else args.client
-    config["installed_clients"] = (
-        ["codex", "claude-code"] if selected_client == "both" else [selected_client]
-    )
+    config["installed_clients"] = selected_clients
     assignment = (
         experiment_assignment(config)
         if optimization_mode(config) == "experiment"

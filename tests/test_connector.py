@@ -264,8 +264,11 @@ class ConnectorTests(unittest.TestCase):
             "--employee-email", "employee@example.com",
             "--consent-confirmed",
         ])
-        with mock.patch.object(
-            connector, "enroll_installation", side_effect=AssertionError("pairing must not start")
+        with (
+            mock.patch.object(connector, "detect_clients", return_value=["codex"]),
+            mock.patch.object(
+                connector, "enroll_installation", side_effect=AssertionError("pairing must not start")
+            ),
         ):
             with self.assertRaisesRegex(RuntimeError, "private recovery flow"):
                 connector.install(args)
@@ -604,14 +607,43 @@ notify = ["project-specific"]
         self.assertEqual(second.count(connector.CLAUDE_COMPACT_BLOCK_START), 1)
         self.assertIn("10,000 tokens", second)
 
-    def test_client_detection_requires_no_user_selection(self):
+    def test_client_detection_lists_available_clients(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             (home / ".claude").mkdir()
             with mock.patch.object(connector.shutil, "which", return_value=None):
+                self.assertEqual(connector.detect_clients(home), ["claude-code"])
                 self.assertEqual(connector.detect_client(home), "claude-code")
                 (home / ".codex").mkdir()
+                self.assertEqual(connector.detect_clients(home), ["codex", "claude-code"])
                 self.assertEqual(connector.detect_client(home), "both")
+
+    def test_setup_stops_before_pairing_when_no_client_is_installed(self):
+        args = connector.parser().parse_args(["setup"])
+        with (
+            mock.patch.object(connector, "detect_clients", return_value=[]),
+            mock.patch.object(
+                connector, "enroll_installation", side_effect=AssertionError("pairing must not start")
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "No se detectó Codex ni Claude Code"):
+                connector.install(args)
+
+    def test_setup_prompts_for_one_of_the_detected_clients(self):
+        with (
+            mock.patch.object(connector, "detect_clients", return_value=["codex", "claude-code"]),
+            mock.patch("builtins.input", side_effect=["invalid", "2"]),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as output,
+        ):
+            self.assertEqual(connector.select_setup_clients("auto"), ["claude-code"])
+        self.assertIn("Codex", output.getvalue())
+        self.assertIn("Claude Code", output.getvalue())
+        self.assertIn("Elegí 1, 2 o 3", output.getvalue())
+
+    def test_explicit_setup_client_must_be_installed(self):
+        with mock.patch.object(connector, "detect_clients", return_value=["claude-code"]):
+            with self.assertRaisesRegex(RuntimeError, "Codex.*no fue detectado"):
+                connector.select_setup_clients("codex")
 
     def test_reinstall_source_can_already_be_the_installed_connector(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -786,8 +818,8 @@ notify = ["project-specific"]
             self.assertIn(connector.CODEX_RULES_BLOCK_START, instructions)
 
     def test_update_availability_only_reports_a_newer_version(self):
-        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.5"}):
-            self.assertEqual(connector.update_availability(), "0.7.5")
+        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.6"}):
+            self.assertEqual(connector.update_availability(), "0.7.6")
         with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": connector.VERSION}):
             self.assertIsNone(connector.update_availability())
 

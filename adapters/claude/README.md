@@ -1,81 +1,75 @@
-# Conector de Claude Code
+# Adaptador de Claude Code
 
-Claude Code se integra mediante el mismo conector de PragmAI utilizado para Codex: `adapters/pragm_ai_connector.py`. La instalación agrega un hook `Stop`, que procesa localmente el transcript técnico disponible al finalizar una respuesta y envía un único evento agregado por intercambio iniciado por el usuario.
+Claude Code usa el conector compartido `adapters/pragm_ai_connector.py`. La instalación agrega un hook `Stop` que procesa localmente el último intercambio humano y envía un único evento técnico agregado.
 
-## Índice
+Esta integración cubre Claude Code, incluso cuando se ejecuta dentro de Warp. No cubre claude.ai web.
 
-- [Alta de un empleado](#alta-de-un-empleado)
-- [Captura](#captura)
-- [Compactación](#compactación)
-- [Datos permitidos](#datos-permitidos)
-- [Filtro obligatorio](#filtro-obligatorio)
-- [Validación](#validación)
-- [Actualización](#actualización)
-- [Límites de seguridad](#límites-de-seguridad)
+## Alta
 
-## Alta de un empleado
+1. Instalar el ejecutable oficial para la plataforma.
+2. Ejecutar `pragmai setup`.
+3. Confirmar que detectó Claude Code y, si también existe Codex, elegir Claude Code o ambos. Si no detecta ningún cliente compatible, termina sin cambios.
+4. Autorizar explícitamente la telemetría sin contenido y el correo normalizado que identificará al empleado.
+5. Obtener un código público temporal y confirmarlo desde el enlace de invitación de un solo uso que Mauro compartió por un canal de confianza.
+6. Permitir que el ejecutable respalde la configuración, instale el hook `Stop` y agregue el bloque administrado a `~/.claude/CLAUDE.md`.
+7. Ejecutar `pragmai doctor`, reiniciar Claude Code y completar la validación.
 
-1. PragmAI entrega un `INSTALL_PROMPT` privado con versión inmutable y SHA-256 separados para `INITIAL_OPTIMIZATION.md` y el conector.
-2. Claude descarga ambos archivos, verifica los dos hashes antes de leer o ejecutar, y luego solicita autorización expresa para la telemetría sin contenido y el correo permitido.
-3. Claude solicita el correo autorizado y el consentimiento, toma del prompt privado el código de instalación ya incorporado y pasa esos valores al instalador junto con el `company_id` asignado.
-4. El instalador guarda sólo configuración y secreto en el equipo, instala el hook y preserva los hooks existentes.
-5. Se completa un intercambio de prueba y se comprueba en PragmAI que llegó un único evento sin contenido sensible.
+La credencial individual se entrega directamente al ejecutable y no aparece en el chat, el enlace, el código público ni los argumentos. El asistente del empleado no consulta Supabase ni interpreta métricas empresariales.
 
-El asistente del empleado no consulta Supabase ni evalúa consumo o comportamiento empresarial. Mauro realiza el análisis central y las optimizaciones desde su Codex.
+## Captura y privacidad
 
-## Captura
+El hook lee el transcript técnico que Claude Code ya mantiene, identifica el último intercambio iniciado por una persona, agrega sus llamadas y descarta contenido antes del envío. No invoca al modelo ni crea un historial, CSV o cola local.
 
-El hook `Stop` lee el último intercambio humano del transcript que Claude Code ya mantiene, agrega sus llamadas y descarta contenido antes del envío. No crea un historial local ni invoca nuevamente al modelo. Esta integración no cubre claude.ai web.
+Cuando Claude Code los expone, se envían:
 
-## Compactación
+- tokens agregados de entrada, salida, caché y razonamiento;
+- llamadas internas, máximo de entrada y llamadas sobre el umbral;
+- duración y mediciones canónicas de compactación;
+- familias cerradas de herramientas y tamaño agregado de resultados;
+- cliente, modelo, esfuerzo, perfil y categorías cerradas de trabajo;
+- versión del conector, telemetría y estado de configuración;
+- estado ON/OFF e identidad HMAC experimental sólo en `experiment`;
+- huella HMAC privada de recurrencia.
 
-El conector `0.7.3` puede usar `experiment` o `always_on`. En el experimento, ON agrega instrucciones persistentes de checkpoint de hasta 10.000 tokens y configura `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` en 64 % sobre una ventana de referencia de 200.000 tokens; OFF restaura el valor previo y omite las reglas de optimización. `always_on` mantiene permanentemente la configuración ON y queda fuera del A/B. La instalación usa el Python activo y funciona en Windows, macOS y Linux, también cuando Claude Code se ejecuta dentro de Warp.
+Se descartan obligatoriamente prompts, respuestas, transcripciones, identificadores de sesión, nombres y argumentos de herramientas, comandos, archivos, rutas, URLs, resultados y cualquier texto libre fuera del esquema. Los campos ausentes quedan sin dato; no se inventan ni se completan con otra llamada al modelo.
 
-El usuario cambia el modo pidiéndoselo al modelo en el chat. Tras una solicitud explícita, el modelo ejecuta `set-optimization-mode always-on` o `set-optimization-mode experiment` sobre el conector instalado. El hook `Stop` sigue ejecutándose al finalizar cada intercambio para enviar telemetría y buscar actualizaciones; sólo en modo experimental rota la configuración cuando cambia el bloque UTC de tres días. No es un cron ni una llamada adicional al modelo.
+## Optimización y compactación
 
-Claude Code no ofrece el mismo alcance explícito `body_after_prefix` de Codex y algunas versiones pueden ignorar el override. Tratar la configuración como tentativa hasta observar `compact_boundary` en la computadora real.
+Modos:
 
-Telemetría v4 usa `compact_boundary` para medir, cuando haya datos suficientes, contexto previo, llamadas posteriores, input posterior y tokens evitados estimados. Un marcador observado no implica automáticamente que exista una medición completa ni que la compactación haya ahorrado créditos.
+- `experiment`: alterna ON/OFF en bloques UTC de tres días;
+- `always_on`: mantiene ON y queda fuera del A/B.
 
-## Datos permitidos
+En ON, el conector agrega instrucciones persistentes para un checkpoint objetivo de hasta 10.000 tokens y configura `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=64` sobre una referencia de 200.000 tokens. En OFF restaura el valor previo y retira sólo las reglas de optimización.
 
-Cuando Claude Code los expone, el conector reduce y envía:
+Claude Code no ofrece el alcance explícito `body_after_prefix` de Codex y algunas versiones pueden ignorar el override. La configuración es tentativa hasta observar una compactación y continuidad en la computadora real. Un marcador no implica una medición completa ni ahorro de créditos.
 
-- tokens de entrada, salida, caché y razonamiento;
-- llamadas internas, máximos y llamadas que superan el umbral; los promedios se derivan centralmente;
-- duración y una estructura canónica por compactación observada;
-- mediciones por compactación, de las que se derivan llamadas posteriores, tokens evitados y economía estimada;
-- categorías cerradas de herramientas, incluida la subdivisión local de shell, nunca nombres ni argumentos;
-- tamaño agregado de resultados devueltos al contexto, nunca su contenido;
-- modelo, perfil y clasificación cerrada de la tarea;
-- versión del conector y coincidencia de la configuración gestionada;
-- `experiment_id`, flag ON/OFF e identificador HMAC del bloque-usuario;
-- una huella HMAC privada para reconocer recurrencia sin enviar el texto.
+Cambiar el modo requiere una solicitud explícita del usuario. El hook puede preparar el bloque siguiente después de un intercambio, pero registra el estado realmente utilizado. No es un cron ni una llamada adicional al modelo.
 
-Los campos no disponibles quedan sin dato. No se agregan datos inventados ni se hace otra llamada al modelo.
-
-## Filtro obligatorio
-
-Antes del envío se descartan:
-
-- prompts y respuestas;
-- identificadores de sesión;
-- nombres y argumentos de herramientas;
-- comandos, archivos, rutas y URLs;
-- texto libre y atributos que no figuren en el esquema de `POST /api/events`.
-
-La única identidad personal admitida es el correo que el propio empleado autoriza durante el alta. No se crea un CSV, una cola ni un historial local de telemetría.
+La reproducción longitudinal v5 y la sensibilidad v6 son específicas de Codex. Claude conserva únicamente las mediciones de compactación que su telemetría permite observar.
 
 ## Validación
 
-Una instalación queda aprobada sólo después de reiniciar Claude Code, completar un intercambio humano y confirmar una única fila sin contenido bajo empresa y correo correctos. La captura y la compactación son validaciones separadas: una compactación requiere suficiente contexto para poder observarse.
+Después de reiniciar Claude Code:
 
-Confirmar además `telemetry_version=5`, `connector_version=0.7.3`, el estado de configuración, los conteos por familia y `tool_result_characters`. Exigir asignación completa en `experiment`; en `always_on`, confirmar `optimization_enabled=true` y ausencia de identificadores experimentales. La reproducción longitudinal v5 es específica de Codex; Claude conserva las mediciones por compactación disponibles. Las estimaciones económicas se calculan en el servidor y no se aceptan como cargos oficiales informados por Claude Code.
+1. ejecutar `pragmai doctor`;
+2. completar un único intercambio humano;
+3. confirmar una fila bajo empresa y correo correctos;
+4. verificar versión, telemetría, configuración, llamadas, familias y `tool_result_characters`;
+5. exigir asignación completa en `experiment`; en `always_on`, exigir ON y ausencia de identificadores experimentales;
+6. confirmar que no exista contenido sensible;
+7. validar captura y compactación por separado.
 
-## Actualización
+No declarar activa la integración hasta realizar esta prueba en el entorno real. Las estimaciones económicas se calculan en el servidor y no son cargos oficiales de Claude Code.
 
-Después de un evento, el conector rota la asignación si cambió el bloque UTC de tres días y comprueba como máximo una vez cada 24 horas de uso si existe una versión superior, sin llamar al modelo ni enviar telemetría adicional. Para una actualización agrega una indicación a su bloque administrado de `CLAUDE.md`; al iniciar la siguiente tarea, Claude informa la novedad en el chat y pide autorización. Si el usuario acepta, el asistente ejecuta el subcomando `update` con el mismo Python y la ruta que imprimió el instalador. Si Codex también está instalado puede usar `pragm-ai-updater`. Desde `0.6.4` se exige una firma válida del manifiesto mediante la clave pública incorporada, el origen HTTPS oficial exacto, rutas inmutables de la versión y SHA-256 de los tres activos; se rechazan modificaciones, downgrades y rutas alternativas, y se preservan empresa, correo, secreto, hooks, línea base y configuración gestionada. Una instalación anterior a `0.6.4` necesita una transición confiable única para incorporar la verificación de firmas.
+## Actualización y recuperación
 
-## Límites de seguridad
+Como máximo una vez cada 24 horas de uso, el conector puede comprobar un manifiesto oficial sin llamar al modelo ni enviar telemetría adicional. Verifica la firma antes de confiar en versión, ubicaciones o hashes y sólo instala después de autorización explícita.
 
-La instalación inicial fija por el prompt privado la versión inmutable y los hashes de la guía y el conector. Las actualizaciones posteriores a `0.6.4` requieren además un manifiesto firmado fuera de Vercel y verifican los tres activos. No se ejecuta código descargado desde `latest` ni mediante `curl | sh`. Un compromiso del alojamiento puede impedir descargas, pero no fabricar una actualización aceptada sin la clave privada de firma; un administrador del equipo todavía puede modificar código, configuración o hooks locales, riesgo que requiere controles del dispositivo.
+El actualizador conserva empresa, correo, credencial, modo, hooks y configuración base. Rechaza modificaciones, downgrades y activos que no coincidan con el manifiesto firmado.
+
+Si una instalación se revoca o compromete, Mauro crea una invitación nueva y el empleado repite `pragmai setup`. No se recuperan ni redistribuyen credenciales anteriores. `pragmai uninstall` retira sólo cambios administrados, restaura hooks previos y conserva respaldos recuperables.
+
+## Límite de seguridad
+
+La firma y los hashes protegen la cadena de publicación, pero un compromiso del alojamiento puede impedir descargas y una persona o malware con control administrativo del equipo todavía puede alterar programas o configuración local. Esos riesgos requieren controles del dispositivo y no pueden resolverse sólo desde el conector.
