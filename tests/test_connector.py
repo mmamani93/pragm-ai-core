@@ -54,6 +54,17 @@ class ConnectorTests(unittest.TestCase):
             [connector.sys.executable, str(connector.INSTALL_FILE), "codex-notify"],
         )
 
+    def test_windows_claude_hook_is_safe_for_the_posix_shell(self):
+        command = connector.claude_hook_command(
+            [r"C:\Users\Claude Code\AppData\Local\PragmAI\pragmai.exe", "claude-stop"],
+            "nt",
+        )
+        self.assertEqual(
+            connector.shlex.split(command),
+            ["C:/Users/Claude Code/AppData/Local/PragmAI/pragmai.exe", "claude-stop"],
+        )
+        self.assertNotIn("\\", command)
+
     def test_doctor_validates_a_healthy_local_install_without_network_access(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -853,8 +864,10 @@ notify = ["project-specific"]
             self.assertIn(connector.CODEX_RULES_BLOCK_START, instructions)
 
     def test_update_availability_only_reports_a_newer_version(self):
-        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": "0.7.8"}):
-            self.assertEqual(connector.update_availability(), "0.7.8")
+        major, minor, patch = connector.version_tuple(connector.VERSION)
+        newer_version = f"{major}.{minor}.{patch + 1}"
+        with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": newer_version}):
+            self.assertEqual(connector.update_availability(), newer_version)
         with mock.patch.object(connector, "fetch_update_manifest", return_value={"version": connector.VERSION}):
             self.assertIsNone(connector.update_availability())
 
@@ -908,8 +921,8 @@ notify = ["project-specific"]
             settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
             self.assertEqual(settings["env"]["EXISTING"], "kept")
             hook_command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
-            self.assertIn(str(connector.INSTALL_FILE), hook_command)
-            self.assertIn(str(connector.sys.executable), hook_command)
+            self.assertIn(str(connector.INSTALL_FILE).replace("\\", "/"), hook_command)
+            self.assertIn(str(connector.sys.executable).replace("\\", "/"), hook_command)
             self.assertNotIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", settings["env"])
             self.assertEqual(settings["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "64")
             self.assertEqual(len(settings["hooks"]["Stop"]), 1)

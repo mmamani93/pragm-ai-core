@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
-  "version": "0.7.4",
+  "version": "0.7.8",
   "connector": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.4/pragm_ai_connector.py",
-    "sha256": "39563b2daf608264ccd90c2724c188d16782cf70225d804ab974b4ab64d5da91"
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.8/pragm_ai_connector.py",
+    "sha256": "cb06d9a38cfcb410b4e1c2abb18dd8553cb9ffb9dc2862ac9310fe0b22810a2d"
   },
   "instructions": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.4/INITIAL_OPTIMIZATION.md",
-    "sha256": "f7bdfa0ebb85a655d29600c4fb46ab97f83352474606a1e1a860221c6d80a982"
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.8/INITIAL_OPTIMIZATION.md",
+    "sha256": "ab8d7d1ffe5112d16eccf4728b7dfe2af84cee2f04c8500a4bd1fe672755ce22"
   },
   "skill": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.4/pragm-ai-updater/SKILL.md",
-    "sha256": "b129d68953adace0e77e49c26d6b353e28c8479df7be1586a322e9bf097826c1"
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.8/pragm-ai-updater/SKILL.md",
+    "sha256": "53a66d39866b008a7b652bfa458458a1abc3eb1e831ba87ef92512771119c89a"
   },
   "signing_key": {
     "algorithm": "rsa-pkcs1v15-sha256",
@@ -21,6 +21,6 @@
   "signature": {
     "algorithm": "rsa-pkcs1v15-sha256",
     "key_id": "5627b3c1dd7b622a",
-    "value": "dIdFprzH3ZN3M2CFGCyTJbk+DZWBQx0sMFHgCJ0urQcaxonbXaaJjOZ71hEQSDcvGulFOsU1j4cIqPEn9ITBYkUTF5a9nqrrE+NXChb0WmQ9NCaFaiQDioGanPfJBXh4UlwJPYp/5To1GD+qi2V2dVWrUe4Zk2YDQj/M1O9mXtaqIKzgfONWsxI3mvhguWdFR1At1x+u+pcSrgyttJKbUfPz8hQuGzKJNc4LiUu/nxb8ku1m9UaYCil7bt/FGoGALPrS0G7JQVd+6EiNhdJ3+vgtbPHkpsfnm32jAGEkNle7mrfR/FgVqP/1Yt96m6DWAK2dROxLTgt95yAiwwErrO2HImsUSxKeMUUmtJhd9gVjwdGSALpdh4WSNM/HvJYtN4+ApfqDj4fYfQx/+h+hZ3dUxaA3uPkOPTLH/uKsbGw7QUK+oQpbsnHsvukqLhNvvknkR+igtZw4UWD/xVAFQVECMtDFb8s0xBtm1BM3O5p6NvriTX0bFxsdcOG/7iuq"
+    "value": "ntH8LnSbfR1Vnd4AF+0+m2+pjlQmxBJaDE5lgyAboF6B7IDOIed8Cax3g0hhdT8ahImCh1EfniLHcf3/U7OtFp6XKQm8iCFa2+7ENQGLHI/234iwQzikgUH4hTImlUpuFf3/n4PCV5nErnzBoJ4fbC/D3IMZBiO1qkDtaBmq9dZ7kNn1PIJXZCBnbmJLrGjwbGRnBShgwJloMIB7YOOIfwTElbi1tOEhA3sEAURXIKw7/KwxAgMrT+NnWpO7tZcF92TvG02GlqZLAMqWAeP46JB4hVW+10+B5A6SHMDUlm5IuQRS9m9VYv/VRo6MUsOk5r2FLCHm1xX3KvYDP4+EgqEGAPnwHCBCaqzZ/sgn7XvKg35s4CZCKa+guqjqsk+HGhkCeysoE35MSo0kI9efLFZPGBCMg4e26bfhC6EZtW5QIIWJBGuid6EAokfzoqmHFoZrFJIE5ojDeAX2EdbJbTj2HaKqLnWI4ZwCxOMU5g7Q1Un+SHkg5ZtocTb+ZK3T"
   }
 }
