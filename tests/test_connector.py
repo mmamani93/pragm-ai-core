@@ -428,6 +428,13 @@ notify = ["project-specific"]
         self.assertEqual(result["calls_over_compaction_threshold"], 1)
         self.assertEqual(result["tokens_cache_read"], 150_000)
 
+    def test_compaction_threshold_uses_input_context_not_total_tokens(self):
+        result = connector.aggregate_usage([
+            {"input_tokens": 99_000, "output_tokens": 5_000, "total_tokens": 104_000},
+            {"input_tokens": 101_000, "output_tokens": 1_000, "total_tokens": 102_000},
+        ])
+        self.assertEqual(result["calls_over_compaction_threshold"], 1)
+
     def test_codex_produces_one_content_free_event_per_user_exchange(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
