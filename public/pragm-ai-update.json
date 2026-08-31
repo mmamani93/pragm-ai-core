@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "version": "0.7.9",
+  "version": "0.7.10",
   "connector": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.9/pragm_ai_connector.py",
-    "sha256": "01489ba7a9502dca793d7d72c6d7d8ea4c6e2b95d9e13c9093f303764b587778"
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.10/pragm_ai_connector.py",
+    "sha256": "eff8f99432422435c4cf00e9eaafca5f96f8eb7f507322e2e96d6374a9d666e6"
   },
   "instructions": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.9/INITIAL_OPTIMIZATION.md",
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.10/INITIAL_OPTIMIZATION.md",
     "sha256": "759d3297097d293919ac0c6205372d568760fe568e135a573b9b8c65abe101bc"
   },
   "skill": {
-    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.9/pragm-ai-updater/SKILL.md",
+    "url": "https://m-pragm-ai.vercel.app/downloads/0.7.10/pragm-ai-updater/SKILL.md",
     "sha256": "53a66d39866b008a7b652bfa458458a1abc3eb1e831ba87ef92512771119c89a"
   },
   "signing_key": {
@@ -21,6 +21,6 @@
   "signature": {
     "algorithm": "rsa-pkcs1v15-sha256",
     "key_id": "5627b3c1dd7b622a",
-    "value": "T2AUZ5mnD54qF+abyKBf/uGB6yZQYE4jKfa8cfll2G0DlGIXodl9crlRz1oIAdbA7g4hKqGmP2NH5zKFeqzLgYw2Jq8HGDhTcDiQ8FduCzHI+BUYFgR3lyHlk2LJHU/XXEJa7Ges286K9wOM3CG6lN/QyGXavUpTOIxExevaDXXdfjckN/9eAHBl2vyTRtopPD7ff0hLxF9Wh7qSQs6vFbU3eYFNKbW1ZDlLMAiSE4BHBPuyQp6dRICj9A15GiWbNWQ7ZZB60eBCLdIyyw2V0xt5vXhiqKK7xQjMXH+BRq6fv48eFbpHLM+OxwC9KFYtMVHVNHB/NSjjQBZy7T1zJ1umoRpRQrkrFtT3V35zkhWZ2l9Z/0WRGqd64OgBZ6Pphcacr2Zk+60OM2rQ+laqvj8+Bb8xno0bevJyRIGxIs9gOMSUHMgbf23lIX8Ryr6zDl1yYWTEbwcfMhtwMZrWgYMfMfebAauW2B76RGL1YoWws1Tx0mjQB/vJP29DhtbI"
+    "value": "ActiWdXbcvRP9VKmvV/y86IFJAaQ5SFVG51bzU5sSttztf7NgZmmHyon5jzM5ZaZbXV9tu+NoSzKtur/KygN3DIHRajYahoCL7JPziTpF3CXTlQ5rKjc1YwiQwOkizzyhd/gcw39Od/+xaNFWzfxLB0kx9L7mDaG3UJif06AAXyTVJnVUDJSfXtmqdhgvXAMabVDLwS7S5jHv+Xvy3DtIdbGVSz8JQZdu5AJaOnzUA5SMNXa0zjHfzey4qzaZNsFAnqqlXmUBmz0K+EiuskROmRTucYkXwwz8EhhV7jVeVBFSjZGeQyzXC+Ed4WPpBWSETuQheG6BNgz03OjKie2Eoklw+c+DNwMi92DtBQdgrcJociiJ06e95gAihVY5NMqc1wiZRamy2Sd++KNzfUoZxERlw3dw2RPLQVaxXA9VZe1uv+5glpuuZTz/Dzy240rBlxiVgPVmMpHtu2vjMCysV5XtPEOWz7JYBGRRLX1GrVvT+Ic1ll90lj04bz5HyN8"
   }
 }

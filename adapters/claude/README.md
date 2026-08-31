@@ -31,6 +31,8 @@ Cuando Claude Code los expone, se envían:
 - estado ON/OFF e identidad HMAC experimental sólo en `experiment`;
 - huella HMAC privada de recurrencia.
 
+Claude Code no expone una unidad de créditos de suscripción equivalente a la publicada para Codex. Por eso `credits_used` queda sin cobertura para Claude en vez de inferirse desde tokens; el equivalente API sí se calcula con la tarifa pública vigente. Cuando la telemetría distingue escritura de caché de una hora, se conserva ese volumen para aplicar su tarifa específica.
+
 Se descartan obligatoriamente prompts, respuestas, transcripciones, identificadores de sesión, nombres y argumentos de herramientas, comandos, archivos, rutas, URLs, resultados y cualquier texto libre fuera del esquema. Los campos ausentes quedan sin dato; no se inventan ni se completan con otra llamada al modelo.
 
 ## Optimización y compactación
@@ -60,7 +62,7 @@ Después de reiniciar Claude Code:
 6. confirmar que no exista contenido sensible;
 7. validar captura y compactación por separado.
 
-No declarar activa la integración hasta realizar esta prueba en el entorno real. Las estimaciones económicas se calculan en el servidor y no son cargos oficiales de Claude Code.
+No declarar activa la integración hasta realizar esta prueba en el entorno real. Las estimaciones económicas se calculan en el servidor y no son cargos oficiales de Claude Code. La ausencia de créditos de suscripción es una limitación de cobertura, no consumo cero.
 
 ## Actualización y recuperación
 

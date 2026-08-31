@@ -26,11 +26,13 @@ The connector uses counters exposed by the local client. Missing data remains ab
 | `duration_ms` | Elapsed time covered by the exchange when observable. |
 | `tokens_input`, `tokens_output` | Aggregate input and output tokens. |
 | `tokens_cache_read`, `tokens_cache_write` | Aggregate cache counters when exposed. |
+| `tokens_cache_write_1h` | Subset of cache-write tokens using a one-hour TTL when the client exposes it. |
 | `tokens_reasoning` | Aggregate reasoning tokens when exposed. |
 | `model_calls` | Number of model calls observed inside the exchange. |
 | `max_input_tokens_per_call` | Largest observed input context. |
 | `calls_over_compaction_threshold` | Calls whose context crossed the configured threshold. |
 | `cache_miss_calls` | Calls with no observed cache read. |
+| `long_context_fresh_input_tokens`, `long_context_cached_input_tokens`, `long_context_cache_write_tokens`, `long_context_output_tokens` | Usage buckets from calls above the provider's long-context pricing threshold. They permit server-side per-call pricing without transmitting call sequences. |
 
 ## Closed work and tool categories
 

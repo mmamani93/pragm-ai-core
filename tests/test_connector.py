@@ -435,6 +435,20 @@ notify = ["project-specific"]
         ])
         self.assertEqual(result["calls_over_compaction_threshold"], 1)
 
+    def test_usage_aggregation_preserves_long_context_and_cache_ttl_buckets(self):
+        result = connector.aggregate_usage([{
+            "input_tokens": 300_000,
+            "cached_input_tokens": 100_000,
+            "cache_write_input_tokens": 20_000,
+            "cache_creation": {"ephemeral_1h_input_tokens": 5_000},
+            "output_tokens": 10_000,
+        }])
+        self.assertEqual(result["long_context_fresh_input_tokens"], 180_000)
+        self.assertEqual(result["long_context_cached_input_tokens"], 100_000)
+        self.assertEqual(result["long_context_cache_write_tokens"], 20_000)
+        self.assertEqual(result["long_context_output_tokens"], 10_000)
+        self.assertEqual(result["tokens_cache_write_1h"], 5_000)
+
     def test_codex_produces_one_content_free_event_per_user_exchange(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
