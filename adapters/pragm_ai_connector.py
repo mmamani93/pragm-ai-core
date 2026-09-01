@@ -25,7 +25,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.11"
+VERSION = "0.7.12"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 6
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
@@ -103,7 +103,7 @@ PRAGMAI_CORE_RULES = """## PragmAI managed instructions
 
 - Never include prompts, responses, commands, arguments, file names, paths, URLs, transcripts, session identifiers or individual tool names in PragmAI telemetry.
 - Never expose the private PragmAI configuration. Permanent credentials must not appear in chat, URLs, command arguments, telemetry, versioned documentation or auxiliary files. Enrollment uses a temporary invitation and `pragmai setup`.
-- The employee assistant must not query Supabase or interpret company analytics; Mauro performs that analysis centrally.
+- The employee assistant must not query Supabase or interpret company analytics; an authorized PragmAI administrator performs that analysis centrally.
 - Checking for a PragmAI update is read-only. Install an update only after the user explicitly requests it.
 - Preserve existing user and project instructions; more specific instructions continue to apply."""
 
@@ -261,14 +261,14 @@ An update is complete only when `pragmai doctor` confirms the configured version
 
 def install_privacy_notice(mode: str) -> str:
     mode_notice = (
-        "Ese empleado alternará de forma seudónima entre optimización ON y OFF en bloques de tres días UTC; "
-        "el evento informará la asignación y si la configuración coincidió."
+        "The employee will alternate pseudonymously between optimization ON and OFF in three-day UTC blocks; "
+        "the event will report the assignment and whether the configuration matched."
         if mode == "experiment"
-        else "La optimización permanecerá activada y esta instalación no participará del experimento ON/OFF."
+        else "Optimization will remain enabled and this installation will not participate in the ON/OFF experiment."
     )
-    return f"""PragmAI enviará únicamente métricas técnicas agregadas y categorías cerradas.
-No enviará prompts, respuestas, comandos, argumentos, archivos, rutas, URLs ni transcripciones.
-El correo autorizado se guardará como identificador del empleado dentro de la empresa configurada.
+    return f"""PragmAI will send only aggregate technical metrics and closed categories.
+It will not send prompts, responses, commands, arguments, files, paths, URLs, or transcripts.
+The authorized email will be stored as the employee identifier within the configured company.
 {mode_notice}"""
 
 
@@ -318,10 +318,10 @@ def enroll_installation(ingest_endpoint: str, employee_id: str, timeout_seconds:
             or not isinstance(pairing_secret, str) or len(pairing_secret) < 32:
         raise RuntimeError("PragmAI could not start secure onboarding.")
 
-    print("Código de vinculación:")
+    print("Pairing code:")
     print(code)
-    print("Abrí el enlace de invitación que te compartió el administrador y autorizá este código.")
-    print("Esperando autorización…")
+    print("Open the invitation link shared by the administrator and authorize this code.")
+    print("Waiting for authorization...")
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         time.sleep(max(1, min(int(pairing.get("poll_after_seconds", 2)), 10)))
@@ -460,13 +460,13 @@ def classify(text: str, tool_categories: list[str]) -> dict:
     rules = [
         (r"\b(excel|xlsx|planilla|spreadsheet|sheets?)\b", "data", "analyze", "spreadsheet_analysis"),
         (r"\b(document|documento|docx|word|pdf|contrato|informe)\b", "documents", "edit", "document_drafting"),
-        (r"\b(research|investig|busc|fuentes?|web)\w*", "research", "research", "web_research"),
+        (r"\b(research|investig|busc|fuentes?|search|sources?|web)\w*", "research", "research", "web_research"),
         (r"\b(code|codigo|program|repo|api|bug|test|deploy|configur)\w*", "software", "edit", "code_change"),
-        (r"\b(email|correo|mensaje|comunic)\w*", "communications", "communicate", "email_drafting"),
+        (r"\b(email|correo|mensaje|comunic|message)\w*", "communications", "communicate", "email_drafting"),
         (r"\b(presentacion|presentation|slides?|pptx)\b", "documents", "create", "presentation_creation"),
-        (r"\b(imagen|image|video|logo|dise[nñ])\w*", "creative", "create", "image_video_creation"),
-        (r"\b(error|falla|problema|troubleshoot|diagnost)\w*", "operations", "troubleshoot", "troubleshooting"),
-        (r"\b(plan|estrateg|roadmap)\w*", "operations", "plan", "planning"),
+        (r"\b(imagen|image|video|logo|dise[nñ]|design)\w*", "creative", "create", "image_video_creation"),
+        (r"\b(error|falla|problema|failure|problem|troubleshoot|diagnos)\w*", "operations", "troubleshoot", "troubleshooting"),
+        (r"\b(plan|estrateg|strateg|roadmap)\w*", "operations", "plan", "planning"),
     ]
     domain, task_type, workflow = "other", "other", "general_assistance"
     for pattern, matched_domain, matched_type, matched_workflow in rules:
@@ -1623,8 +1623,8 @@ def detect_client(home: Path | None = None) -> str:
     if clients:
         return clients[0]
     raise RuntimeError(
-        "No se detectó Codex ni Claude Code. Instalá al menos uno, comprobá que pueda abrirse "
-        "desde esta terminal y volvé a ejecutar `pragmai setup`. No se realizó ningún cambio."
+        "Neither Codex nor Claude Code was detected. Install at least one, confirm that it can be opened "
+        "from this terminal, and run `pragmai setup` again. No changes were made."
     )
 
 
@@ -1632,12 +1632,12 @@ def select_setup_clients(requested_client: str, home: Path | None = None) -> lis
     detected = detect_clients(home)
     if not detected:
         raise RuntimeError(
-            "No se detectó Codex ni Claude Code. Instalá al menos uno, comprobá que pueda abrirse "
-            "desde esta terminal y volvé a ejecutar `pragmai setup`. No se realizó ningún cambio."
+            "Neither Codex nor Claude Code was detected. Install at least one, confirm that it can be opened "
+            "from this terminal, and run `pragmai setup` again. No changes were made."
         )
 
     labels = {"codex": "Codex", "claude-code": "Claude Code"}
-    print("Clientes compatibles detectados:")
+    print("Supported clients detected:")
     for client in detected:
         print(f"- {labels[client]}")
 
@@ -1651,13 +1651,13 @@ def select_setup_clients(requested_client: str, home: Path | None = None) -> lis
         if missing:
             unavailable = ", ".join(labels[client] for client in missing)
             raise RuntimeError(
-                f"No se puede seleccionar {unavailable} porque no fue detectado en este equipo. "
-                "No se realizó ningún cambio."
+                f"{unavailable} cannot be selected because it was not detected on this computer. "
+                "No changes were made."
             )
         return requested
 
     if len(detected) == 1:
-        print(f"PragmAI se instalará en {labels[detected[0]]}.")
+        print(f"PragmAI will be installed for {labels[detected[0]]}.")
         return detected
 
     choices = {
@@ -1667,11 +1667,11 @@ def select_setup_clients(requested_client: str, home: Path | None = None) -> lis
     }
     while True:
         answer = input(
-            "¿Dónde querés instalar PragmAI? [1] Codex  [2] Claude Code  [3] Ambos: "
+            "Where do you want to install PragmAI? [1] Codex  [2] Claude Code  [3] Both: "
         ).strip()
         if answer in choices:
             return choices[answer]
-        print("Elegí 1, 2 o 3.")
+        print("Choose 1, 2, or 3.")
 
 
 def install_updater_skill(skill_bytes: bytes | None = None) -> Path | None:
@@ -2244,15 +2244,15 @@ def install(args) -> int:
     endpoint = args.endpoint or os.environ.get("PRAGMAI_ENDPOINT", DEFAULT_ENDPOINT)
     requested_mode = (args.optimization_mode or "experiment").replace("-", "_")
     print(install_privacy_notice(requested_mode))
-    employee_id = (args.employee_email or input("Correo que autorizás como identificador: ")).strip().lower()
+    employee_id = (args.employee_email or input("Email you authorize as an identifier: ")).strip().lower()
     if not EMAIL_RE.fullmatch(employee_id):
         raise RuntimeError("A valid, explicitly authorized employee email is required.")
     if not args.consent_confirmed:
-        company_label = company_id or "la empresa que te invitó"
+        company_label = company_id or "the company that invited you"
         consent = input(
-            f"¿Autorizás esta medición para {company_label} usando {employee_id} como identificador? [s/N]: "
+            f"Do you authorize this measurement for {company_label} using {employee_id} as an identifier? [y/N]: "
         ).strip().lower()
-        if consent not in {"s", "si", "sí", "y", "yes"}:
+        if consent not in {"y", "yes"}:
             raise RuntimeError("Installation cancelled because explicit consent was not granted.")
     parsed_endpoint = urlparse(endpoint)
     if parsed_endpoint.scheme != "https" or not parsed_endpoint.netloc or parsed_endpoint.username:

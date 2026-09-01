@@ -344,8 +344,8 @@ notify = ["project-specific"]
 
     def setUp(self):
         self.config = {
-            "company_id": "pilot-mauro",
-            "employee_id": "mauro@example.com",
+            "company_id": "pilot-example",
+            "employee_id": "employee@example.com",
             "fingerprint_key": "11" * 32,
             "billing_mode": "subscription",
             "optimization_mode": "experiment",
@@ -392,21 +392,24 @@ notify = ["project-specific"]
 
     def test_private_fingerprint_is_stable_and_contains_no_source_text(self):
         first = connector.recurrence_key(
-            "Revisá /Users/mauro/secret.txt en https://example.com para 27 clientes",
+            "Review /Users/example-user/secret.txt at https://example.com for 27 customers",
             self.config["fingerprint_key"],
         )
         second = connector.recurrence_key(
-            "Revisá /tmp/other.txt en https://other.example para 99 clientes",
+            "Review /tmp/other.txt at https://other.example for 99 customers",
             self.config["fingerprint_key"],
         )
         self.assertEqual(first, second)
         self.assertRegex(first, r"^rt_[a-f0-9]{32}$")
-        self.assertNotIn("revisa", first)
+        self.assertNotIn("review", first)
 
     def test_classifier_uses_fixed_taxonomy_and_coarse_tool_families(self):
-        result = connector.classify("Corregí un bug del repositorio", ["shell", "filesystem_write"])
+        result = connector.classify("Fix a repository bug", ["shell", "filesystem_write"])
         self.assertEqual(result["work_domain"], "software")
         self.assertEqual(result["workflow_pattern"], "code_change")
+        spanish_result = connector.classify("Corregí un bug del repositorio", ["shell", "filesystem_write"])
+        self.assertEqual(spanish_result["work_domain"], "software")
+        self.assertEqual(spanish_result["workflow_pattern"], "code_change")
         self.assertNotIn("automation_score", result)
         self.assertNotIn("automation_confidence", result)
         self.assertNotIn("tool_categories", result)
@@ -415,7 +418,7 @@ notify = ["project-specific"]
         self.assertEqual(connector.tool_category("exec_command", {"cmd": "rg --files"}), "shell_file_inspection")
         self.assertEqual(connector.tool_category("exec_command", {"cmd": "npm test"}), "shell_testing")
         self.assertEqual(connector.tool_category("exec_command", {"cmd": "git status"}), "shell_version_control")
-        self.assertEqual(connector.classify("Hola", [])["workflow_pattern"], "general_assistance")
+        self.assertEqual(connector.classify("Hello", [])["workflow_pattern"], "general_assistance")
 
     def test_usage_aggregation_reports_calls_and_context_distribution(self):
         result = connector.aggregate_usage([
@@ -467,9 +470,9 @@ notify = ["project-specific"]
                 "type": "agent-turn-complete",
                 "thread-id": "thread-12345678",
                 "turn-id": "turn-abc",
-                "cwd": "/Users/mauro/private-client",
-                "input-messages": ["Arreglá el código del cliente ACME en https://private.example"],
-                "last-assistant-message": "Contenido privado de la respuesta",
+                "cwd": "/Users/example-user/private-client",
+                "input-messages": ["Fix ACME's code at https://private.example"],
+                "last-assistant-message": "Private response content",
             }
             event = connector.codex_event(payload, self.config, root)
 
@@ -515,7 +518,7 @@ notify = ["project-specific"]
                 {"timestamp": "2026-08-24T12:00:06Z", "type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-abc"}},
             ]
             session.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
-            payload = {"thread-id": "thread-12345678", "turn-id": "turn-abc", "input-messages": ["Investigá y corregí"]}
+            payload = {"thread-id": "thread-12345678", "turn-id": "turn-abc", "input-messages": ["Investigate and fix"]}
             event = connector.codex_event(payload, self.config, root)
 
         self.assertEqual(event["model_calls"], 1)
@@ -627,7 +630,7 @@ notify = ["project-specific"]
         with tempfile.TemporaryDirectory() as directory:
             transcript = Path(directory) / "claude.jsonl"
             records = [
-                {"type": "user", "uuid": "user-1", "timestamp": "2026-08-24T13:00:00Z", "message": {"content": "Analizá el contrato secreto de ACME"}},
+                {"type": "user", "uuid": "user-1", "timestamp": "2026-08-24T13:00:00Z", "message": {"content": "Analyze ACME's confidential contract"}},
                 {"type": "assistant", "timestamp": "2026-08-24T13:00:01Z", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 100, "cache_read_input_tokens": 50, "cache_creation_input_tokens": 25, "output_tokens": 20}, "content": [{"type": "tool_use", "name": "Read", "input": {"path": "/secret"}}]}},
                 {"type": "user", "timestamp": "2026-08-24T13:00:02Z", "message": {"content": [{"type": "tool_result", "content": "raw secret"}]}},
                 {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-08-24T13:00:02Z", "compactMetadata": {"preTokens": 99999}},
@@ -646,7 +649,7 @@ notify = ["project-specific"]
         self.assertEqual(event["compaction_scope"], "approximate_total")
         self.assertEqual(event["compaction_measurements"][0]["model_calls_after"], 1)
         serialized = json.dumps(event)
-        for sensitive in ("ACME", "contrato secreto", "/secret", "raw secret", "private answer", "session-secret"):
+        for sensitive in ("ACME", "confidential contract", "/secret", "raw secret", "private answer", "session-secret"):
             self.assertNotIn(sensitive, serialized)
 
     def test_toml_update_only_replaces_top_level_settings(self):
@@ -693,7 +696,7 @@ notify = ["project-specific"]
                 connector, "enroll_installation", side_effect=AssertionError("pairing must not start")
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "No se detectó Codex ni Claude Code"):
+            with self.assertRaisesRegex(RuntimeError, "Neither Codex nor Claude Code was detected"):
                 connector.install(args)
 
     def test_setup_prompts_for_one_of_the_detected_clients(self):
@@ -705,11 +708,11 @@ notify = ["project-specific"]
             self.assertEqual(connector.select_setup_clients("auto"), ["claude-code"])
         self.assertIn("Codex", output.getvalue())
         self.assertIn("Claude Code", output.getvalue())
-        self.assertIn("Elegí 1, 2 o 3", output.getvalue())
+        self.assertIn("Choose 1, 2, or 3", output.getvalue())
 
     def test_explicit_setup_client_must_be_installed(self):
         with mock.patch.object(connector, "detect_clients", return_value=["claude-code"]):
-            with self.assertRaisesRegex(RuntimeError, "Codex.*no fue detectado"):
+            with self.assertRaisesRegex(RuntimeError, "Codex.*was not detected"):
                 connector.select_setup_clients("codex")
 
     def test_reinstall_source_can_already_be_the_installed_connector(self):

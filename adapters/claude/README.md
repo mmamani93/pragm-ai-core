@@ -1,77 +1,79 @@
-# Adaptador de Claude Code
+# Claude Code adapter
 
-Claude Code usa el conector compartido `adapters/pragm_ai_connector.py`. La instalación agrega un hook `Stop` que procesa localmente el último intercambio humano y envía un único evento técnico agregado.
+Claude Code uses the shared `adapters/pragm_ai_connector.py` connector. Installation adds a `Stop` hook that locally processes the latest human exchange and sends one aggregate technical event.
 
-Esta integración cubre Claude Code, incluso cuando se ejecuta dentro de Warp. No cubre claude.ai web.
+This integration covers Claude Code, including when it runs inside Warp. It does not cover the claude.ai website.
 
-## Alta
+## Enrollment
 
-1. Instalar el ejecutable oficial para la plataforma.
-2. Ejecutar `pragmai setup`.
-3. Confirmar que detectó Claude Code y, si también existe Codex, elegir Claude Code o ambos. Si no detecta ningún cliente compatible, termina sin cambios.
-4. Autorizar explícitamente la telemetría sin contenido y el correo normalizado que identificará al empleado.
-5. Obtener un código público temporal y confirmarlo desde el enlace de invitación de un solo uso que Mauro compartió por un canal de confianza.
-6. Permitir que el ejecutable respalde la configuración, instale el hook `Stop` y agregue el bloque administrado a `~/.claude/CLAUDE.md`.
-7. Ejecutar `pragmai doctor`, reiniciar Claude Code y completar la validación.
+1. Install the official executable for the platform.
+2. Run `pragmai setup`.
+3. Confirm that it detected Claude Code and, if Codex is also present, choose Claude Code or both. If it detects no supported client, it exits without changes.
+4. Explicitly authorize content-free telemetry and the normalized email that identifies the employee.
+5. Obtain a temporary public code and confirm it through the one-use invitation link shared by a PragmAI administrator over a trusted channel.
+6. Allow the executable to back up the configuration, install the `Stop` hook, and add the managed block to `~/.claude/CLAUDE.md`.
+7. Run `pragmai doctor`, restart Claude Code, and complete validation.
 
-La credencial individual se entrega directamente al ejecutable y no aparece en el chat, el enlace, el código público ni los argumentos. El asistente del empleado no consulta Supabase ni interpreta métricas empresariales.
+The individual credential is delivered directly to the executable and never appears in chat, the link, the public code, or command arguments. The employee assistant does not query Supabase or interpret company analytics.
 
-## Captura y privacidad
+## Capture and privacy
 
-El hook lee el transcript técnico que Claude Code ya mantiene, identifica el último intercambio iniciado por una persona, agrega sus llamadas y descarta contenido antes del envío. No invoca al modelo ni crea un historial, CSV o cola local.
+The hook reads the technical transcript already maintained by Claude Code, identifies the latest human-initiated exchange, aggregates its calls, and discards content before sending. It does not invoke the model or create a local history, CSV file, or queue.
 
-Cuando Claude Code los expone, se envían:
+When Claude Code exposes them, PragmAI sends:
 
-- tokens agregados de entrada, salida, caché y razonamiento;
-- llamadas internas, máximo de entrada y llamadas sobre el umbral;
-- duración y mediciones canónicas de compactación;
-- familias cerradas de herramientas y tamaño agregado de resultados;
-- cliente, modelo, esfuerzo, perfil y categorías cerradas de trabajo;
-- versión del conector, telemetría y estado de configuración;
-- estado ON/OFF e identidad HMAC experimental sólo en `experiment`;
-- huella HMAC privada de recurrencia.
+- aggregate input, output, cache, and reasoning tokens;
+- internal calls, maximum input, and calls over the threshold;
+- duration and canonical compaction measurements;
+- closed tool families and aggregate result size;
+- client, model, effort, profile, and closed work categories;
+- connector version, telemetry version, and configuration status;
+- ON/OFF state and an experimental HMAC identity only in `experiment`;
+- private HMAC recurrence fingerprint.
 
-Claude Code no expone una unidad de créditos de suscripción equivalente a la publicada para Codex. Por eso `credits_used` queda sin cobertura para Claude en vez de inferirse desde tokens; el equivalente API sí se calcula con la tarifa pública vigente. Cuando la telemetría distingue escritura de caché de una hora, se conserva ese volumen para aplicar su tarifa específica.
+Claude Code does not expose a subscription-credit unit equivalent to the one published for Codex. Therefore, `credits_used` has no coverage for Claude instead of being inferred from tokens; the API equivalent can still be calculated from the current public price. When telemetry distinguishes one-hour cache writes, that volume is preserved so its specific price can be applied.
 
-Se descartan obligatoriamente prompts, respuestas, transcripciones, identificadores de sesión, nombres y argumentos de herramientas, comandos, archivos, rutas, URLs, resultados y cualquier texto libre fuera del esquema. Los campos ausentes quedan sin dato; no se inventan ni se completan con otra llamada al modelo.
+Prompts, responses, transcripts, session identifiers, tool names and arguments, commands, files, paths, URLs, results, and all free text outside the schema are discarded. Missing fields remain absent; they are neither invented nor completed with another model call.
 
-## Optimización y compactación
+## Optimization and compaction
 
-Modos:
+Modes:
 
-- `experiment`: alterna ON/OFF en bloques UTC de tres días;
-- `always_on`: mantiene ON y queda fuera del A/B.
+- `experiment`: alternates ON/OFF in three-day UTC blocks;
+- `always_on`: remains ON and is excluded from the A/B experiment.
 
-En ON, el conector agrega instrucciones persistentes para un checkpoint objetivo de hasta 10.000 tokens y configura `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=64` sobre una referencia de 200.000 tokens. En OFF restaura el valor previo y retira sólo las reglas de optimización.
+In ON, the connector adds persistent instructions for a checkpoint target of at most 10,000 tokens and configures `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=64` against a 200,000-token reference. In OFF, it restores the previous value and removes only the optimization rules.
 
-Claude Code no ofrece el alcance explícito `body_after_prefix` de Codex y algunas versiones pueden ignorar el override. La configuración es tentativa hasta observar una compactación y continuidad en la computadora real. Un marcador no implica una medición completa ni ahorro de créditos.
+Claude Code does not provide Codex's explicit `body_after_prefix` scope, and some versions may ignore the override. The configuration remains tentative until compaction and continuity are observed on the actual computer. A marker does not prove complete measurement or credit savings.
 
-Cambiar el modo requiere una solicitud explícita del usuario. El hook puede preparar el bloque siguiente después de un intercambio, pero registra el estado realmente utilizado. No es un cron ni una llamada adicional al modelo.
+Changing the mode requires an explicit user request. The hook may prepare the next block after an exchange, but it records the state actually used. It is not a scheduled task or an additional model call.
 
-La reproducción longitudinal v5 y la sensibilidad v6 son específicas de Codex. Claude conserva únicamente las mediciones de compactación que su telemetría permite observar.
+Longitudinal v5 replay and v6 sensitivity are specific to Codex. Claude retains only the compaction measurements its telemetry permits it to observe.
 
-## Validación
+## Validation
 
-Después de reiniciar Claude Code:
+After restarting Claude Code:
 
-1. ejecutar `pragmai doctor`;
-2. completar un único intercambio humano;
-3. confirmar una fila bajo empresa y correo correctos;
-4. verificar versión, telemetría, configuración, llamadas, familias y `tool_result_characters`;
-5. exigir asignación completa en `experiment`; en `always_on`, exigir ON y ausencia de identificadores experimentales;
-6. confirmar que no exista contenido sensible;
-7. validar captura y compactación por separado.
+1. run `pragmai doctor`;
+2. complete one human exchange;
+3. confirm one row under the correct company and email;
+4. verify version, telemetry, configuration, calls, families, and `tool_result_characters`;
+5. require a complete assignment in `experiment`; in `always_on`, require ON and no experiment identifiers;
+6. confirm that no sensitive content is present;
+7. validate capture and compaction separately.
 
-No declarar activa la integración hasta realizar esta prueba en el entorno real. Las estimaciones económicas se calculan en el servidor y no son cargos oficiales de Claude Code. La ausencia de créditos de suscripción es una limitación de cobertura, no consumo cero.
+Do not declare the integration active until this test is completed in the real environment. Economic estimates are calculated on the server and are not official Claude Code charges. Missing subscription-credit coverage is a coverage limitation, not zero consumption.
 
-## Actualización y recuperación
+## Updates and recovery
 
-Como máximo una vez cada 24 horas de uso, el conector puede comprobar un manifiesto oficial sin llamar al modelo ni enviar telemetría adicional. Verifica la firma antes de confiar en versión, ubicaciones o hashes y sólo instala después de autorización explícita.
+At most once every 24 hours of use, the connector may check a signed official manifest without calling the model or sending additional telemetry. It verifies the signature before trusting a version, location, or hash and installs only after explicit authorization.
 
-El actualizador conserva empresa, correo, credencial, modo, hooks y configuración base. Rechaza modificaciones, downgrades y activos que no coincidan con el manifiesto firmado.
+The updater preserves company, email, credential, mode, hooks, and base configuration. It rejects modifications, downgrades, and assets that do not match the signed manifest.
 
-Si una instalación se revoca o compromete, Mauro crea una invitación nueva y el empleado repite `pragmai setup`. No se recuperan ni redistribuyen credenciales anteriores. `pragmai uninstall` retira sólo cambios administrados, restaura hooks previos y conserva respaldos recuperables.
+Use of PragmAI and the decision to install, defer, test, or apply an update are the user's responsibility. The user must verify release authenticity and integrity, maintain backups, test compatibility, secure the device and credentials, and validate the result. No maintenance, support, update, notification, compatibility, or recovery obligation exists unless separately agreed in writing. See the repository `LICENSE` for the supplemental disclaimer and MPL 2.0 warranty and liability terms.
 
-## Límite de seguridad
+If an installation is revoked or compromised, a PragmAI administrator creates a new invitation and the employee repeats `pragmai setup`. Previous credentials are never recovered or redistributed. `pragmai uninstall` removes only managed changes, restores previous hooks, and keeps recoverable backups.
 
-La firma y los hashes protegen la cadena de publicación, pero un compromiso del alojamiento puede impedir descargas y una persona o malware con control administrativo del equipo todavía puede alterar programas o configuración local. Esos riesgos requieren controles del dispositivo y no pueden resolverse sólo desde el conector.
+## Security boundary
+
+Signatures and hashes protect the publication chain, but compromised hosting may make downloads unavailable, and a person or malware with administrative control of the computer can still alter local software or configuration. Those risks require device controls and cannot be solved by the connector alone.

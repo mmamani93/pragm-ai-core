@@ -83,7 +83,7 @@
   "compaction_threshold_tokens": 127000,
   "compaction_scope": "body_after_prefix",
   "billing_mode": "subscription",
-  "connector_version": "0.7.10",
+  "connector_version": "0.7.12",
   "telemetry_version": 6,
   "optimization_enabled": true,
   "configured_compaction_threshold_tokens": 100000,

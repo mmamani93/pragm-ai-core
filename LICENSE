@@ -1,3 +1,40 @@
+PragmAI Supplemental Disclaimer (Not Part of the MPL 2.0)
+=========================================================
+
+For purposes of this supplemental notice, "Software" means PragmAI Core in
+source or executable form and the related update information distributed by
+its maintainers.
+
+To the maximum extent permitted by applicable law, each user is solely
+responsible for determining whether the Software is appropriate for the
+user's purposes and environment, and for the Software's installation,
+configuration, operation, use, and results.
+
+Each user is also solely responsible for monitoring release information;
+deciding whether and when to install, defer, or reject updates; obtaining any
+required authorization; verifying the origin, signature, and integrity of
+updates; maintaining adequate backups and security controls; testing
+compatibility; and protecting systems, credentials, and data before and after
+an update. Failure to apply an update may leave defects, incompatibilities, or
+security risks unresolved. Applying an update may change behavior or
+compatibility.
+
+Except where separately agreed in writing, PragmAI, its maintainers,
+contributors, and distributors undertake no duty to monitor a user's systems;
+provide maintenance, support, updates, or update notices; install or test an
+update; preserve compatibility; prevent interruption or data loss; or recover
+systems or data. The Software and update information are not professional,
+security, compliance, legal, financial, or operational advice and must not be
+relied upon as a substitute for independent review and validation.
+
+This supplemental disclaimer reinforces, and does not replace, restrict, or
+modify, the rights granted under the Mozilla Public License Version 2.0. The
+official, unmodified MPL 2.0 text follows. Its Sections 6 and 7 contain the
+controlling disclaimer of warranty and limitation of liability for Covered
+Software. Where applicable law does not permit a disclaimer or limitation in
+full, it applies only to the maximum extent permitted by that law.
+
+
 Mozilla Public License Version 2.0
 ==================================
 

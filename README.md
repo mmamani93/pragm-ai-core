@@ -4,6 +4,8 @@ PragmAI Core is the auditable local component of PragmAI. It installs the Codex 
 
 This repository exists so employees, customers, and auditors can verify exactly what leaves a workstation. It does not contain the PragmAI backend, dashboard, credentials, metric evaluation, business interpretation, recommendations, or the logic used to decide possible improvements.
 
+PragmAI Core is not a substitute for professional, security, compliance, legal, financial, or operational advice. Its telemetry and any hosted estimates are informational and may be incomplete, unavailable, or inaccurate when a client does not expose the required data.
+
 ## Privacy boundary
 
 PragmAI Core may send an employee-authorized email plus technical counters and closed categories. It never sends prompts, responses, transcripts, commands, arguments, tool output, file names, paths, URLs, session identifiers, or individual tool names.
@@ -64,6 +66,14 @@ Private:
 - dashboards and metric evaluation;
 - economic interpretation, recommendations, and improvement decisions.
 
+Generated copies of published connector versions are not kept on the default branch. Published source snapshots and binaries remain available through immutable Git tags and GitHub Releases; the default branch contains only the current auditable source and release workflow.
+
+## User responsibility
+
+Use of PragmAI Core and the decision to install, defer, test, or apply an update are the user's responsibility. Users must determine whether the software is appropriate for their environment, obtain any required organizational authorization, verify release signatures and hashes, maintain backups, test compatibility, secure credentials and devices, and validate results before relying on them.
+
+Update checks are informational and do not install software. Neither the availability of an update nor an update notice transfers responsibility for installation, configuration, compatibility, security, continuity, data protection, or recovery to PragmAI or its contributors. No maintenance, support, update, or notification obligation exists unless it is agreed separately in writing. See the supplemental disclaimer and MPL 2.0 Sections 6 and 7 in [LICENSE](LICENSE).
+
 ## License
 
-PragmAI Core is licensed under the Mozilla Public License 2.0. The hosted PragmAI platform and private analysis components are not included in this license.
+PragmAI Core is licensed under the Mozilla Public License 2.0. The hosted PragmAI platform and private analysis components are not included in this license and may be governed by separate terms. The supplemental notice in [LICENSE](LICENSE) makes the user-responsibility, no-maintenance, warranty, and liability boundaries explicit without modifying the MPL 2.0 grant.

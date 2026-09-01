@@ -1,58 +1,58 @@
-# PragmAI — reglas administradas y telemetría
+# PragmAI — managed rules and telemetry
 
-Documento fuente incluido en el release firmado del conector. Define qué instala PragmAI, qué datos procesa y las reglas de optimización que administra. No contiene credenciales ni reemplaza la guía pública de instalación.
+This source document is included in the connector's signed release. It defines what PragmAI installs, what data it processes, and which optimization rules it manages. It contains no credentials and does not replace the public installation guide.
 
-## Instalación y consentimiento
+## Installation and consent
 
-La vía normal es instalar el ejecutable oficial y ejecutar `pragmai setup`. Mauro crea una invitación temporal en la página administrativa y la comparte directamente con el empleado.
+The standard path is to install the official executable and run `pragmai setup`. A PragmAI administrator creates a temporary invitation in the administration page and shares it directly with the employee.
 
-Durante `setup`:
+During `setup`:
 
-1. el ejecutable detecta Codex, Claude Code o ambos; si no encuentra ninguno, lo informa y termina sin modificar el equipo ni consumir la invitación;
-2. si ambos están instalados, el empleado elige Codex, Claude Code o los dos;
-3. el ejecutable explica los cambios locales y la telemetría;
-4. el empleado autoriza explícitamente el uso de su correo como identificador;
-5. el correo se normaliza a minúsculas y no se usa con otro fin;
-6. el ejecutable muestra un código público temporal;
-7. el empleado lo confirma desde su enlace de invitación;
-8. el servidor entrega una credencial individual y revocable directamente al ejecutable;
-9. se respaldan las configuraciones que cambiarán y se instalan únicamente los hooks elegidos;
-10. `pragmai doctor` verifica el resultado sin mostrar secretos.
+1. the executable detects Codex, Claude Code, or both; if neither is found, it reports that result and exits without changing the computer or consuming the invitation;
+2. if both are installed, the employee chooses Codex, Claude Code, or both;
+3. the executable explains the local changes and telemetry;
+4. the employee explicitly authorizes use of their email as an identifier;
+5. the email is normalized to lowercase and is not used for any other purpose;
+6. the executable displays a temporary public code;
+7. the employee confirms it through the invitation link;
+8. the server delivers an individual revocable credential directly to the executable;
+9. the affected configurations are backed up and only the selected hooks are installed;
+10. `pragmai doctor` verifies the result without exposing secrets.
 
-La credencial permanente no aparece en el enlace, el código público, el chat, una URL ni los argumentos. El ejecutable autónomo no requiere Python ni paquetes de terceros en la computadora del empleado.
+The permanent credential never appears in the link, public code, chat, a URL, or command arguments. The standalone executable does not require Python or third-party packages on the employee's computer.
 
-Comandos operativos:
+Operational commands:
 
-- `pragmai setup`: vincula e instala;
-- `pragmai doctor`: diagnostica la configuración, integridad y sincronización sin consultar Supabase ni exponer credenciales;
-- `pragmai check-update`: consulta de sólo lectura el manifiesto firmado;
-- `pragmai repair`: sincroniza la copia privada usada por los hooks y repara cambios administrados con autorización;
-- `pragmai uninstall`: retira únicamente los cambios administrados y restaura configuraciones previas.
+- `pragmai setup`: pairs and installs;
+- `pragmai doctor`: diagnoses configuration, integrity, and synchronization without querying Supabase or exposing credentials;
+- `pragmai check-update`: performs a read-only check of the signed manifest;
+- `pragmai repair`: synchronizes the private copy used by hooks and repairs managed changes with authorization;
+- `pragmai uninstall`: removes only managed changes and restores previous configurations.
 
-## Reglas permanentes de privacidad
+## Permanent privacy rules
 
-Estas reglas se instalan en todos los modos y se integran sin borrar instrucciones existentes:
+These rules are installed in every mode and are merged without deleting existing instructions:
 
-- nunca incluir prompts, respuestas, comandos, argumentos, nombres de archivos, rutas, URLs, transcripciones, identificadores de sesión ni nombres individuales de herramientas en la telemetría;
-- no exponer la configuración privada ni conservar credenciales fuera del almacenamiento local protegido;
-- no crear historiales locales, colas, CSV analíticos ni archivos para que el modelo procese métricas;
-- transformar la información transitoriamente y enviar sólo métricas técnicas y categorías cerradas;
-- no consultar Supabase ni interpretar analítica empresarial desde el asistente del empleado;
-- comprobar actualizaciones de forma sólo lectura; instalar, reparar o cambiar el modo únicamente tras una solicitud explícita;
-- preservar instrucciones del usuario y del proyecto; prevalece la regla más específica.
+- never include prompts, responses, commands, arguments, file names, paths, URLs, transcripts, session identifiers, or individual tool names in telemetry;
+- never expose private configuration or keep credentials outside protected local storage;
+- never create local analytics histories, queues, CSV files, or files for the model to process metrics;
+- transform information transiently and send only technical metrics and closed categories;
+- never query Supabase or interpret company analytics from the employee assistant;
+- check for updates in read-only mode; install, repair, or change the mode only after an explicit request;
+- preserve user and project instructions; the more specific rule takes precedence.
 
-Si el endpoint no está disponible, el evento se descarta. PragmAI prioriza no acumular datos en la computadora del empleado.
+If the endpoint is unavailable, the event is discarded. PragmAI prioritizes avoiding data accumulation on the employee's computer.
 
-## Modos de optimización
+## Optimization modes
 
-- `experiment`: alterna ON/OFF en bloques de tres días UTC. La asignación es seudónima y el evento conserva el estado realmente utilizado.
-- `always_on`: mantiene ON y no genera identidad experimental.
+- `experiment`: alternates ON/OFF in three-day UTC blocks. Assignment is pseudonymous and the event records the state actually used.
+- `always_on`: remains ON and generates no experiment identity.
 
-Cambiar de modo requiere autorización explícita. OFF conserva captura, privacidad y actualizaciones; sólo retira las intervenciones de optimización y restaura la configuración previa respaldada.
+Changing modes requires explicit authorization. OFF retains capture, privacy, and update checks; it removes only the optimization interventions and restores the backed-up prior configuration.
 
-## Reglas activas en ON
+## Rules active in ON
 
-El siguiente bloque se instala únicamente en ON. Se integra con las instrucciones existentes sin reemplazarlas:
+The following block is installed only in ON. It is merged with existing instructions without replacing them:
 
 ```markdown
 ## Accuracy, token efficiency, and local processing
@@ -69,105 +69,107 @@ El siguiente bloque se instala únicamente en ON. Se integra con las instruccion
 - Never sacrifice accuracy, safety or task requirements to save tokens.
 ```
 
-No instalar por defecto una base vectorial, SQLite, un modelo generativo local, un router semántico ni una memoria reescrita continuamente. Requieren un cuello de botella demostrado y una comparación controlada.
+Do not install a vector database, SQLite, a local generative model, a semantic router, or continuously rewritten memory by default. They require a demonstrated bottleneck and a controlled comparison.
 
-## Compactación administrada
+## Managed compaction
 
-En Codex, ON configura:
+In Codex, ON configures:
 
 ```toml
 model_auto_compact_token_limit = 100000
 model_auto_compact_token_limit_scope = "body_after_prefix"
 ```
 
-El límite se aplica al cuerpo posterior al prefijo fijo, no al contexto total. Puede sobrepasarse alrededor de una transición y una fila puede agregar varias llamadas internas; por eso se miden llamadas, máximos y compactaciones observadas en lugar de inferirlos de una cifra aislada.
+The limit applies to the body after the fixed prefix, not to total context. It may be exceeded around a transition, and one row may aggregate multiple internal calls; calls, maxima, and observed compactions are measured instead of being inferred from one isolated number.
 
-En Claude Code no existe una opción pública equivalente a `body_after_prefix`. PragmAI deriva un disparo aproximado del 64% sobre una ventana de referencia de 200.000 tokens y agrega las instrucciones de checkpoint. Debe validarse en cada entorno real; si el cliente no lo respeta, se informa como no validado.
+Claude Code has no public option equivalent to `body_after_prefix`. PragmAI derives an approximate 64% trigger from a 200,000-token reference window and adds checkpoint instructions. It must be validated in each real environment; if the client does not honor it, it is reported as unvalidated.
 
-El checkpoint objetivo es de hasta 10.000 tokens y conserva:
+The checkpoint target is at most 10,000 tokens and preserves:
 
-- objetivo y requisitos;
-- instrucciones vigentes;
-- hechos verificados y evidencia necesaria;
-- decisiones y correcciones;
-- cambios realizados y pruebas;
-- bloqueos y próximos pasos.
+- objective and requirements;
+- active instructions;
+- verified facts and required evidence;
+- decisions and corrections;
+- completed changes and tests;
+- blockers and next steps.
 
-Elimina conversación redundante y salidas ya resueltas. El tamaño es un objetivo, no una garantía exacta.
+It removes redundant conversation and resolved output. The size is a target, not an exact guarantee.
 
-## Captura local
+## Local capture
 
 ### Codex
 
-El hook `notify` localiza el intercambio terminado en la telemetría que mantiene el cliente, agrega sus llamadas internas y produce un único evento `user_exchange`. Descarta actividad interna, `codex-auto-review`, turnos sin consumo y todo contenido.
+The local `notify` hook locates the completed exchange in the telemetry maintained by the client, aggregates its internal calls, and produces one `user_exchange` event. It discards internal activity, `codex-auto-review`, turns with no usage, and all content.
 
 ### Claude Code
 
-El hook `Stop` toma sólo el último intercambio iniciado por una persona, agrega sus llamadas y reduce las herramientas a familias cerradas. Esta integración cubre Claude Code, no claude.ai web.
+The `Stop` hook takes only the latest human-initiated exchange, aggregates its calls, and reduces tools to closed families. This integration covers Claude Code, not the claude.ai website.
 
-### Transformaciones comunes
+### Common transformations
 
-El texto de la tarea puede usarse transitoriamente en memoria para asignar `work_domain`, `task_type` y `workflow_pattern` dentro de listas cerradas, y para producir una huella HMAC de la forma normalizada. Ni el texto normalizado ni la clave HMAC salen del equipo.
+Task text may be used transiently in memory to assign `work_domain`, `task_type`, and `workflow_pattern` from closed lists and to produce an HMAC fingerprint of the normalized form. Neither the normalized text nor the HMAC key leaves the computer.
 
-Las herramientas se reducen a conteos por familias cerradas: `web`, `browser`, `filesystem_read`, `filesystem_write`, `database`, `office_documents`, `image_generation`, `external_app`, `other` y las subfamilias `shell_testing`, `shell_build_deploy`, `shell_version_control`, `shell_database`, `shell_dependency_management`, `shell_data_processing`, `shell_file_inspection` o `shell_general`. Nunca se transmiten nombres, argumentos ni comandos. Los eventos históricos sin evidencia suficiente no se reclasifican.
+Tools are reduced to counts in the closed families `web`, `browser`, `filesystem_read`, `filesystem_write`, `database`, `office_documents`, `image_generation`, `external_app`, and `other`, plus the subfamilies `shell_testing`, `shell_build_deploy`, `shell_version_control`, `shell_database`, `shell_dependency_management`, `shell_data_processing`, `shell_file_inspection`, and `shell_general`. Names, arguments, and commands are never transmitted. Historical events are not reclassified when the available evidence is insufficient.
 
-La huella permite contar recurrencia dentro de la misma empresa, empleado y patrón:
+The fingerprint permits recurrence to be counted within the same company, employee, and pattern:
 
-- primera observación: `low`;
-- segunda: `medium`;
-- tercera o posterior: `high`.
+- first observation: `low`;
+- second observation: `medium`;
+- third or later observation: `high`.
 
-Esto mide similitud técnica observada, no demuestra que exista un proceso automatizable. Mauro valida el contexto con el empleado antes de recomendar cambios.
+This measures observed technical similarity; it does not prove that a process can be automated. A PragmAI administrator validates the context with the employee before recommending changes.
 
-## Métricas enviadas
+## Metrics sent
 
-Sólo cuando el cliente las expone:
+Only when exposed by the client:
 
-- versión del conector y de telemetría;
-- empresa y correo autorizado;
-- cliente, modelo, razonamiento y perfil;
-- tokens agregados de entrada, salida, caché, escritura de caché y razonamiento;
-- cantidad de llamadas internas y máximo de entrada por llamada;
-- llamadas posteriores a herramientas, continuaciones y fallas de caché;
-- conteos por familia de herramientas y caracteres agregados de resultados;
-- duración y mediciones técnicas de compactación;
-- configuración declarada frente a la efectiva y estado ON/OFF;
-- identidad experimental seudónima sólo en `experiment`;
-- categorías cerradas de trabajo y recurrencia privada;
-- reproducción y sensibilidad de compactación cuando la versión de telemetría las soporta.
+- connector and telemetry versions;
+- company and authorized email;
+- client, model, reasoning effort, and profile;
+- aggregate input, output, cache-read, cache-write, and reasoning tokens;
+- internal-call count and maximum input per call;
+- post-tool calls, continuations, and cache misses;
+- tool-family counts and aggregate result characters;
+- duration and technical compaction measurements;
+- requested versus effective configuration and ON/OFF state;
+- pseudonymous experiment identity only in `experiment`;
+- closed work categories and private recurrence;
+- compaction replay and sensitivity when supported by the telemetry version.
 
-No se inventan campos ausentes. Los promedios, totales, costos, créditos y recurrencia se derivan centralmente cuando pueden calcularse de datos base. La API acepta algunos campos heredados para compatibilidad, pero los valida y descarta antes de guardar si son redundantes.
+Missing fields are never invented. Averages, totals, costs, credits, and recurrence are derived centrally when they can be calculated from base data. The API accepts some legacy fields for compatibility but validates and discards them before storage when they are redundant.
 
-Los resultados posteriores a una compactación son observados. Tokens evitados, costo de compactar, créditos evitados y ahorro neto son estimaciones contrafactuales del servidor: pueden ser negativos y no son un cobro ni un reintegro oficial del proveedor.
+Results after a compaction are observed. Avoided tokens, compaction cost, avoided credits, and net savings are server-side counterfactual estimates: they may be negative and are not an official provider charge or credit.
 
-PragmAI no emite un puntaje de automatización desde el conector. Las recomendaciones requieren análisis central y evidencia empresarial adicional.
+PragmAI does not emit an automation score from the connector. Recommendations require central analysis and additional company evidence.
 
-## Actualizaciones y seguridad
+## Updates, security, and user responsibility
 
-Como máximo una vez cada 24 horas de uso, el conector puede consultar el manifiesto oficial. Esa comprobación:
+At most once every 24 hours of use, the connector may check the official manifest. The check:
 
-- no llama al modelo ni envía telemetría adicional;
-- verifica la firma antes de confiar en versión, ubicaciones o hashes;
-- no instala nada;
-- agrega un aviso administrado cuando existe una versión superior.
+- does not call the model or send additional telemetry;
+- verifies the signature before trusting a version, location, or hash;
+- installs nothing;
+- adds a managed notice when a newer version exists.
 
-La instalación ocurre sólo si el usuario la autoriza. En el ejecutable autónomo se actualiza primero el paquete o artefacto oficial y después `pragmai repair` sincroniza atómicamente la copia privada usada por los hooks. Se conserva identidad, credencial, modo y configuración base, y se mantiene un respaldo recuperable. `pragmai doctor` exige que ambas copias coincidan en versión e integridad.
+Installation occurs only after the user authorizes it. For the standalone executable, the official package or artifact is updated first; `pragmai repair` then atomically synchronizes the private copy used by hooks. Identity, credential, mode, and base configuration are preserved, and a recoverable backup is retained. `pragmai doctor` requires both copies to match in version and integrity.
 
-En Windows se intenta primero WinGet. Si no encuentra `PragmAI.PragmAI`, el asistente informa esa limitación y pide autorización explícita antes de descargar o ejecutar una alternativa. Sólo después de recibirla usa el release estable de <https://github.com/mmamani93/pragm-ai-core/releases>, elige la versión indicada por el manifiesto firmado, descarga `pragmai-windows-x64.zip`, verifica el SHA-256 publicado por GitHub y ejecuta `repair` y `doctor` con el ejecutable nuevo. Consultar la página del release es una acción de sólo lectura; no autoriza la instalación.
+On Windows, WinGet is tried first. If it cannot find `PragmAI.PragmAI`, the assistant reports that limitation and asks for explicit authorization before downloading or executing an alternative. Only after authorization may it use the stable release at <https://github.com/mmamani93/pragm-ai-core/releases>, select the version named by the signed manifest, download `pragmai-windows-x64.zip`, verify its SHA-256 against the digest published by GitHub, and run `repair` and `doctor` with the new executable. Inspecting the release page is read-only and does not authorize installation.
 
-Una firma válida protege la cadena de publicación, pero no evita que una persona o malware con control de la cuenta local o privilegios administrativos sustituya programas. Los permisos locales, la autenticación por empresa y las credenciales revocables limitan el riesgo, no lo eliminan.
+Use of PragmAI and the decision to install, defer, test, or apply an update are the user's responsibility. The user must obtain any required authorization, verify release authenticity and integrity, maintain backups, test compatibility, secure the device and credentials, and validate the result. Unless separately agreed in writing, PragmAI and its contributors have no duty to provide, monitor, install, or test updates; preserve compatibility or availability; or recover systems or data. See `LICENSE` for the supplemental disclaimer, warranty disclaimer, and limitation of liability.
 
-## Validación
+A valid signature protects the publication chain, but it cannot prevent a person or malware with control of the local account or administrative privileges from replacing software. Local permissions, company authentication, and revocable credentials reduce risk; they do not eliminate it.
 
-Después de reiniciar el cliente:
+## Validation
 
-1. ejecutar `pragmai doctor`;
-2. realizar un intercambio de prueba iniciado por el empleado;
-3. confirmar una sola fila bajo empresa y correo correctos;
-4. reconciliar tokens y llamadas internas;
-5. comprobar la versión de telemetría, la configuración efectiva y el modo;
-6. verificar ausencia de texto libre, nombres individuales de herramientas, comandos, argumentos, rutas, URLs e identificadores de sesión;
-7. en `experiment`, exigir asignación completa; en `always_on`, exigir ON y ausencia de identidad experimental;
-8. registrar sólo aprobado o fallido.
+After restarting the client:
 
-La recuperación de una instalación revocada se hace con una nueva invitación y `pragmai setup`. No se recuperan ni redistribuyen credenciales anteriores.
+1. run `pragmai doctor`;
+2. perform one employee-initiated test exchange;
+3. confirm exactly one row under the correct company and email;
+4. reconcile tokens and internal calls;
+5. verify the telemetry version, effective configuration, and mode;
+6. verify the absence of free text, individual tool names, commands, arguments, paths, URLs, and session identifiers;
+7. in `experiment`, require a complete assignment; in `always_on`, require ON and no experiment identifiers;
+8. record only pass or fail.
+
+Recover a revoked installation with a new invitation and `pragmai setup`. Previous credentials are never recovered or redistributed.
