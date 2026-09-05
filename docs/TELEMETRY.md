@@ -40,6 +40,8 @@ The connector uses counters exposed by the local client. Missing data remains ab
 
 `tool_category_counts` contains counts for closed tool families such as file inspection, testing, version control, or filesystem writing. It never contains individual tool names, commands, arguments, or results. `tool_result_characters` is only the aggregate character count of observed local tool results.
 
+Codex telemetry v7 can also emit `code_lines_added`, `code_lines_removed`, `plugin_calls`, and `plugin_category_counts`. Code lines come only from explicit completed `FileChange` items for recognized code files. Plugin calls come only from explicit completed MCP tool items and are grouped into the existing closed taxonomy. Null means the client did not expose the activity signal; zero means it was measured and no matching activity occurred. File names, paths, diffs, content, plugin names, and individual tool names are discarded locally. Skill use is not inferred when the client does not expose an explicit reliable signal.
+
 PragmAI Core does not emit automation scores, recommendations, quality judgments, or suggested improvements. Those are outside the public collection layer.
 
 ## Workflow and compacting counters
@@ -59,7 +61,7 @@ PragmAI Core does not emit automation scores, recommendations, quality judgments
 | `billing_mode` | Subscription, API, or unknown; it is not a price or charge. |
 | `recurrence_key` | HMAC-derived shape identifier. It cannot be reversed into the source text and is not a session identifier. |
 
-The v5 counterfactual and v6 sensitivity grid read the full Codex technical session only transiently. The session identifier, call sequence, source records, and conversation content never enter the event. The grid runs entirely as deterministic local software and does not call the model. The hosted service values these numeric aggregates and labels the results as inferred longitudinal estimates rather than observed charges or causal experiments.
+The v5 counterfactual, v6 sensitivity grid, and v7 activity counters read Codex technical records only transiently. The session identifier, call sequence, source records, file metadata, diffs, plugin names, and conversation content never enter the event. All three run entirely as deterministic local software and do not call the model. The hosted service values these numeric aggregates and labels inferred values separately from observed counters.
 
 ## Explicitly forbidden
 

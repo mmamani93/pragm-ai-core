@@ -452,6 +452,38 @@ notify = ["project-specific"]
         self.assertEqual(result["long_context_output_tokens"], 10_000)
         self.assertEqual(result["tokens_cache_write_1h"], 5_000)
 
+    def test_codex_extended_activity_counts_code_and_closed_plugin_families(self):
+        records = [
+            {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+                "type": "FileChange", "changes": {
+                    "/private/project/app.py": {"type": "update", "unified_diff":
+                        "--- a/app.py\n+++ b/app.py\n@@ -1 +1,2 @@\n-old\n+new\n+second"},
+                    "/private/project/new.ts": {"type": "add", "content": "one\ntwo\n"},
+                    "/private/project/old.js": {"type": "delete", "content": "one\ntwo\n"},
+                    "/private/project/notes.md": {"type": "add", "content": "ignored\n"},
+                }
+            }}},
+            {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+                "type": "McpToolCall", "tool": "mcp__codex_apps__supabase_execute_sql"
+            }}},
+            {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+                "type": "McpToolCall", "tool": "mcp__cua_repl__js"
+            }}},
+        ]
+        self.assertEqual(connector.codex_extended_activity(records), {
+            "code_lines_added": 4,
+            "code_lines_removed": 3,
+            "plugin_calls": 2,
+            "plugin_category_counts": {"browser": 1, "database": 1},
+        })
+        self.assertIsNone(connector.codex_extended_activity([]))
+        self.assertEqual(connector.codex_extended_activity([{
+            "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "AgentMessage"}}
+        }]), {
+            "code_lines_added": 0, "code_lines_removed": 0,
+            "plugin_calls": 0, "plugin_category_counts": {}
+        })
+
     def test_codex_produces_one_content_free_event_per_user_exchange(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -460,6 +492,8 @@ notify = ["project-specific"]
                 {"timestamp": "2026-08-24T12:00:00Z", "type": "turn_context", "payload": {"turn_id": "turn-abc", "model": "gpt-5.6-sol", "effort": "high"}},
                 {"timestamp": "2026-08-24T12:00:01Z", "type": "response_item", "payload": {"type": "function_call", "name": "exec_command", "arguments": "TOP SECRET"}},
                 {"timestamp": "2026-08-24T12:00:01Z", "type": "response_item", "payload": {"type": "function_call_output", "output": "PRIVATE RESULT"}},
+                {"timestamp": "2026-08-24T12:00:01Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "FileChange", "changes": {"/private/client/app.py": {"type": "update", "unified_diff": "--- a/app.py\n+++ b/app.py\n@@ -1 +1,2 @@\n-secret old\n+secret new\n+secret second"}}}}},
+                {"timestamp": "2026-08-24T12:00:01Z", "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "McpToolCall", "tool": "mcp__codex_apps__supabase_execute_sql"}}},
                 {"timestamp": "2026-08-24T12:00:02Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 60_000, "cached_input_tokens": 50_000, "output_tokens": 2_000, "total_tokens": 62_000}}}},
                 {"timestamp": "2026-08-24T12:00:03Z", "type": "compacted", "payload": {}},
                 {"timestamp": "2026-08-24T12:00:04Z", "type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {"input_tokens": 40_000, "cached_input_tokens": 30_000, "output_tokens": 1_000, "total_tokens": 41_000}}}},
@@ -481,12 +515,16 @@ notify = ["project-specific"]
         self.assertEqual(event["tool_result_characters"], len("PRIVATE RESULT"))
         self.assertEqual(event["post_tool_model_calls"], 1)
         self.assertEqual(event["continuation_model_calls"], 1)
+        self.assertEqual(event["code_lines_added"], 2)
+        self.assertEqual(event["code_lines_removed"], 1)
+        self.assertEqual(event["plugin_calls"], 1)
+        self.assertEqual(event["plugin_category_counts"], {"database": 1})
         self.assertEqual(event["compaction_measurements"][0]["model_calls_after"], 1)
         self.assertEqual(event["compaction_measurements"][0]["tokens_avoided_estimated"], 20_000)
         self.assertEqual(event["config_profile"], "smart_100k")
         self.assertEqual(event["compaction_threshold_tokens"], 127_000)
         self.assertEqual(event["compaction_scope"], "body_after_prefix")
-        self.assertEqual(event["telemetry_version"], 6)
+        self.assertEqual(event["telemetry_version"], 7)
         self.assertEqual(event["experiment_id"], connector.EXPERIMENT_ID)
         self.assertEqual(event["experiment_unit_id"], "eu_" + "aa" * 16)
         self.assertTrue(event["optimization_enabled"])
@@ -497,7 +535,7 @@ notify = ["project-specific"]
         ):
             self.assertNotIn(redundant, event)
         serialized = json.dumps(event)
-        for sensitive in ("ACME", "private.example", "private-client", "TOP SECRET", "PRIVATE RESULT", "Contenido privado"):
+        for sensitive in ("ACME", "private.example", "private-client", "TOP SECRET", "PRIVATE RESULT", "Contenido privado", "secret old", "secret new"):
             self.assertNotIn(sensitive, serialized)
         for forbidden_key in ("prompt", "response", "content", "path", "url", "tool_names"):
             self.assertNotIn(f'"{forbidden_key}"', serialized)

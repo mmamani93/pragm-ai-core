@@ -28,6 +28,13 @@
   "tool_category_counts": {
     "shell_general": 1
   },
+  "code_lines_added": 12,
+  "code_lines_removed": 3,
+  "plugin_calls": 2,
+  "plugin_category_counts": {
+    "browser": 1,
+    "database": 1
+  },
   "tool_result_characters": 26,
   "post_tool_model_calls": 1,
   "continuation_model_calls": 0,
@@ -83,8 +90,8 @@
   "compaction_threshold_tokens": 127000,
   "compaction_scope": "body_after_prefix",
   "billing_mode": "subscription",
-  "connector_version": "0.7.12",
-  "telemetry_version": 6,
+  "connector_version": "0.7.13",
+  "telemetry_version": 7,
   "optimization_enabled": true,
   "configured_compaction_threshold_tokens": 100000,
   "config_status": "matched",

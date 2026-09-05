@@ -25,9 +25,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.12"
+VERSION = "0.7.13"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
-TELEMETRY_VERSION = 6
+TELEMETRY_VERSION = 7
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
 OPTIMIZATION_MODES = {"experiment", "always_on"}
@@ -82,6 +82,15 @@ COMPACTION_POLICY["claude_trigger_percent"] = round(
 )
 CONFIG_PROFILE = COMPACTION_POLICY["profile"]
 INTERNAL_MODELS = {"codex-auto-review"}
+CODE_FILE_SUFFIXES = {
+    ".astro", ".bash", ".c", ".cc", ".cjs", ".clj", ".cljs", ".cpp", ".cs", ".css",
+    ".dart", ".ex", ".exs", ".fs", ".fsx", ".go", ".h", ".hcl", ".hpp", ".html",
+    ".java", ".js", ".json", ".jsx", ".kt", ".kts", ".less", ".lua", ".m", ".mdx",
+    ".mjs", ".mm", ".php", ".pl", ".ps1", ".py", ".r", ".rb", ".rs", ".sass",
+    ".scala", ".scss", ".sh", ".sol", ".sql", ".svelte", ".swift", ".tf", ".toml",
+    ".ts", ".tsx", ".vue", ".xml", ".yaml", ".yml", ".zsh",
+}
+CODE_FILE_NAMES = {"dockerfile", "gemfile", "makefile", "procfile", "rakefile"}
 
 COMPACT_PROMPT = """Create a dense, accurate continuation checkpoint for this task. Preserve everything needed to continue correctly, while removing conversational bulk.
 
@@ -516,7 +525,7 @@ def tool_category(name: str, arguments=None) -> str:
     lowered = (name or "").lower()
     if any(value in lowered for value in ("search", "web", "fetch")):
         return "web"
-    if any(value in lowered for value in ("browser", "playwright", "screenshot")):
+    if any(value in lowered for value in ("browser", "playwright", "screenshot", "cua")):
         return "browser"
     if any(value in lowered for value in ("sql", "supabase", "database", "postgres")):
         return "database"
@@ -554,6 +563,66 @@ def aggregate_character_count(value) -> int:
     if isinstance(value, dict):
         return sum(aggregate_character_count(item) for item in value.values())
     return 0
+
+
+def is_code_file(value: str) -> bool:
+    """Classify a path transiently without returning or retaining its name."""
+    name = str(value or "").replace("\\", "/").rsplit("/", 1)[-1].lower()
+    return name in CODE_FILE_NAMES or any(name.endswith(suffix) for suffix in CODE_FILE_SUFFIXES)
+
+
+def diff_line_counts(value: str) -> tuple[int, int]:
+    """Count changed lines in a unified diff without retaining its content."""
+    added = removed = 0
+    for line in str(value or "").splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+"):
+            added += 1
+        elif line.startswith("-"):
+            removed += 1
+    return added, removed
+
+
+def codex_extended_activity(records: list[dict]) -> dict | None:
+    """Aggregate new Codex activity items into privacy-safe numeric counters."""
+    measured = False
+    code_lines_added = code_lines_removed = 0
+    plugin_categories = Counter()
+    for record in records:
+        payload = record.get("payload") or {}
+        if record.get("type") != "event_msg" or payload.get("type") != "item_completed":
+            continue
+        measured = True
+        item = payload.get("item") or {}
+        item_type = str(item.get("type", "")).lower()
+        if item_type == "mcptoolcall":
+            plugin_categories.update([tool_category(str(item.get("tool", "")))])
+        elif item_type == "filechange":
+            changes = item.get("changes") or {}
+            if not isinstance(changes, dict):
+                continue
+            for transient_path, change in changes.items():
+                if not is_code_file(str(transient_path)) or not isinstance(change, dict):
+                    continue
+                unified_diff = change.get("unified_diff")
+                if isinstance(unified_diff, str):
+                    added, removed = diff_line_counts(unified_diff)
+                else:
+                    content = change.get("content")
+                    lines = len(content.splitlines()) if isinstance(content, str) else 0
+                    change_type = str(change.get("type", "")).lower()
+                    added, removed = (0, lines) if change_type == "delete" else (lines, 0)
+                code_lines_added += added
+                code_lines_removed += removed
+    if not measured:
+        return None
+    return {
+        "code_lines_added": code_lines_added,
+        "code_lines_removed": code_lines_removed,
+        "plugin_calls": sum(plugin_categories.values()),
+        "plugin_category_counts": dict(sorted(plugin_categories.items())),
+    }
 
 
 def codex_usage(record: dict) -> dict | None:
@@ -1103,6 +1172,7 @@ def codex_event(payload: dict, config: dict, sessions_root: Path | None = None) 
     compaction_measurements = compaction_measurements_for_codex(
         records, turn_start, turn_end, window_start
     )
+    extended_activity = codex_extended_activity(records[turn_start + 1:turn_end + 1])
 
     model = str(model or "unknown")[:100]
     if model.lower() in INTERNAL_MODELS or "auto-review" in model.lower() or not usages:
@@ -1133,6 +1203,7 @@ def codex_event(payload: dict, config: dict, sessions_root: Path | None = None) 
         "post_tool_model_calls": post_tool_calls,
         "continuation_model_calls": continuation_calls,
         "compaction_measurements": compaction_measurements,
+        **(extended_activity or {}),
         "compaction_counterfactual": codex_compaction_counterfactual(
             records, turn_start, turn_end, config
         ) if optimization_enabled else None,
