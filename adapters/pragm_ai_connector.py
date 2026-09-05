@@ -941,9 +941,13 @@ def claude_configuration_status(optimization_enabled: bool, config: dict) -> dic
         configured_raw = (settings.get("env") or {}).get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
         configured = integer(configured_raw)
         expected = claude_optimization_values(config, optimization_enabled)
+        accepted_blocks = [claude_compact_block(optimization_enabled)]
+        target_version = managed_target_version(config)
+        if target_version:
+            accepted_blocks.append(claude_compact_block(optimization_enabled, target_version))
         matched = (
             configured_raw == expected.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
-            and claude_compact_block(optimization_enabled) in instructions
+            and any(block in instructions for block in accepted_blocks)
         )
         return {
             "configured_compaction_threshold_tokens": (
@@ -1159,10 +1163,21 @@ def claude_input_tokens(usage: dict) -> int:
     ))
 
 
+def is_claude_compaction_boundary(record: dict) -> bool:
+    return record.get("type") == "compact_boundary" or (
+        record.get("type") == "system" and record.get("subtype") == "compact_boundary"
+    )
+
+
+def is_claude_compact_summary(record: dict) -> bool:
+    message = record.get("message") or {}
+    return record.get("isCompactSummary") is True or message.get("isCompactSummary") is True
+
+
 def compaction_measurements_for_claude(records: list[dict]) -> list[dict]:
     markers = [
         index for index, record in enumerate(records)
-        if record.get("type") == "system" and record.get("subtype") == "compact_boundary"
+        if is_claude_compaction_boundary(record)
     ]
     measurements = []
     for position, marker in enumerate(markers, 1):
@@ -1183,13 +1198,14 @@ def compaction_measurements_for_claude(records: list[dict]) -> list[dict]:
                 post_usages.append(usage)
         post_inputs = [claude_input_tokens(usage) for usage in post_usages]
         first_post = post_inputs[0] if post_inputs else None
+        compacted_context = integer(metadata.get("postTokens")) or first_post
         saved_per_call = max((pre_input or 0) - (first_post or 0), 0)
         measurement = {
             "position": position,
             "before_exchange": False,
             "pre_input_tokens": pre_input,
             "pre_cached_tokens": min(pre_cached or 0, pre_input or 0) if pre_input else None,
-            "compacted_context_tokens": first_post,
+            "compacted_context_tokens": compacted_context,
             "first_post_input_tokens": first_post,
             "model_calls_after": len(post_usages),
             "post_input_tokens": sum(post_inputs),
@@ -1213,7 +1229,7 @@ def claude_event(payload: dict, config: dict) -> dict | None:
                 continue
     last_user = None
     for index, record in enumerate(records):
-        if record.get("type") != "user":
+        if record.get("type") != "user" or is_claude_compact_summary(record):
             continue
         content = (record.get("message") or {}).get("content")
         if isinstance(content, list) and content and all(isinstance(item, dict) and item.get("type") == "tool_result" for item in content):
@@ -1265,6 +1281,17 @@ def claude_event(payload: dict, config: dict) -> dict | None:
     optimization = active_optimization_state(config)
     optimization_enabled = optimization["optimization_enabled"]
     configuration = claude_configuration_status(optimization_enabled, config)
+    compaction_threshold = (
+        COMPACTION_POLICY["effective_total_target_tokens"]
+        if optimization_enabled else configuration.get("configured_compaction_threshold_tokens")
+    )
+    usage_metrics = aggregate_usage(
+        usages,
+        cache_write_in_input=False,
+        compaction_threshold=compaction_threshold,
+    )
+    if not compaction_threshold:
+        usage_metrics["calls_over_compaction_threshold"] = None
     event = {
         "event_id": private_digest("claude_", f"{session_id}:{exchange_marker}", config["fingerprint_key"]),
         "occurred_at": last_timestamp or datetime.now(timezone.utc).isoformat(),
@@ -1275,20 +1302,14 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         "reasoning_effort": "unknown",
         **classify(user_text, list(category_counts)),
         "duration_ms": iso_duration_ms(first_timestamp, last_timestamp),
-        **aggregate_usage(
-            usages,
-            cache_write_in_input=False,
-            compaction_threshold=COMPACTION_POLICY["effective_total_target_tokens"],
-        ),
+        **usage_metrics,
         "tool_category_counts": dict(sorted(category_counts.items())),
         "tool_result_characters": tool_result_characters,
         "post_tool_model_calls": post_tool_calls,
         "continuation_model_calls": continuation_calls,
         "compaction_measurements": compaction_measurements,
         "config_profile": CONFIG_PROFILE if optimization_enabled else "baseline",
-        "compaction_threshold_tokens": (
-            COMPACTION_POLICY["effective_total_target_tokens"] if optimization_enabled else configuration.get("configured_compaction_threshold_tokens")
-        ),
+        "compaction_threshold_tokens": compaction_threshold,
         "compaction_scope": "approximate_total" if optimization_enabled else "unavailable",
         "billing_mode": config.get("billing_mode", "subscription"),
         "connector_version": VERSION,

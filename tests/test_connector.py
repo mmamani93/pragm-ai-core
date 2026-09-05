@@ -633,7 +633,8 @@ notify = ["project-specific"]
                 {"type": "user", "uuid": "user-1", "timestamp": "2026-08-24T13:00:00Z", "message": {"content": "Analyze ACME's confidential contract"}},
                 {"type": "assistant", "timestamp": "2026-08-24T13:00:01Z", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 100, "cache_read_input_tokens": 50, "cache_creation_input_tokens": 25, "output_tokens": 20}, "content": [{"type": "tool_use", "name": "Read", "input": {"path": "/secret"}}]}},
                 {"type": "user", "timestamp": "2026-08-24T13:00:02Z", "message": {"content": [{"type": "tool_result", "content": "raw secret"}]}},
-                {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-08-24T13:00:02Z", "compactMetadata": {"preTokens": 99999}},
+                {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-08-24T13:00:02Z", "compactMetadata": {"preTokens": 99999, "postTokens": 12000}},
+                {"type": "user", "isCompactSummary": True, "timestamp": "2026-08-24T13:00:02Z", "message": {"content": "synthetic private compact summary"}},
                 {"type": "assistant", "timestamp": "2026-08-24T13:00:03Z", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 120, "cache_read_input_tokens": 80, "output_tokens": 30}, "content": [{"type": "text", "text": "private answer"}]}},
             ]
             transcript.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
@@ -648,9 +649,21 @@ notify = ["project-specific"]
         self.assertEqual(event["compaction_threshold_tokens"], 127_000)
         self.assertEqual(event["compaction_scope"], "approximate_total")
         self.assertEqual(event["compaction_measurements"][0]["model_calls_after"], 1)
+        self.assertEqual(event["compaction_measurements"][0]["compacted_context_tokens"], 12_000)
         serialized = json.dumps(event)
-        for sensitive in ("ACME", "confidential contract", "/secret", "raw secret", "private answer", "session-secret"):
+        for sensitive in ("ACME", "confidential contract", "/secret", "raw secret", "private answer", "synthetic private", "session-secret"):
             self.assertNotIn(sensitive, serialized)
+
+    def test_claude_code_accepts_direct_compaction_boundary_records(self):
+        records = [
+            {"type": "assistant", "message": {"usage": {"input_tokens": 90_000}}},
+            {"type": "compact_boundary", "compactMetadata": {"preTokens": 90_000, "postTokens": 10_000}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 12_000}}},
+        ]
+        measurements = connector.compaction_measurements_for_claude(records)
+        self.assertEqual(len(measurements), 1)
+        self.assertEqual(measurements[0]["compacted_context_tokens"], 10_000)
+        self.assertEqual(measurements[0]["first_post_input_tokens"], 12_000)
 
     def test_toml_update_only_replaces_top_level_settings(self):
         original = 'notify = ["old"]\n[project]\nnotify = ["nested"]\n'

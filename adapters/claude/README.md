@@ -33,6 +33,8 @@ When Claude Code exposes them, PragmAI sends:
 
 Claude Code does not expose a subscription-credit unit equivalent to the one published for Codex. Therefore, `credits_used` has no coverage for Claude instead of being inferred from tokens; the API equivalent can still be calculated from the current public price. When telemetry distinguishes one-hour cache writes, that volume is preserved so its specific price can be applied.
 
+Compaction savings require an observable `compact_boundary` transition. The connector accepts both the direct record and the `system`/`compact_boundary` variant, and excludes the synthetic `isCompactSummary` message from exchange segmentation. Until a transition is captured, the dashboard reports insufficient measurement evidence—not proof that Claude compacted zero times—and does not fabricate savings cards.
+
 Prompts, responses, transcripts, session identifiers, tool names and arguments, commands, files, paths, URLs, results, and all free text outside the schema are discarded. Missing fields remain absent; they are neither invented nor completed with another model call.
 
 ## Optimization and compaction
