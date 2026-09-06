@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import difflib
 import hashlib
 import hmac
 import json
@@ -25,9 +26,22 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.13"
+VERSION = "0.7.14"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
-TELEMETRY_VERSION = 7
+TELEMETRY_VERSION = 8
+TELEMETRY_V8_FIELDS = {
+    "active_time_ms",
+    "active_time_basis",
+    "code_edit_calls",
+    "code_edit_successes",
+    "code_edit_failures",
+    "plugin_name_counts",
+    "commits_created",
+    "pull_requests_created",
+    "skill_calls",
+    "skill_name_counts",
+    "subagent_calls",
+}
 EXPERIMENT_ID = "optimization_3day_crossover_v1"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
 OPTIMIZATION_MODES = {"experiment", "always_on"}
@@ -91,6 +105,22 @@ CODE_FILE_SUFFIXES = {
     ".ts", ".tsx", ".vue", ".xml", ".yaml", ".yml", ".zsh",
 }
 CODE_FILE_NAMES = {"dockerfile", "gemfile", "makefile", "procfile", "rakefile"}
+PUBLIC_PLUGIN_LABELS = (
+    (("supabase",), "supabase"),
+    (("cua", "computer_use", "computer-use"), "unified_computer_use"),
+    (("spreadsheet", "excel"), "spreadsheets"),
+    (("github",), "github"),
+    (("browser", "playwright"), "browser"),
+)
+PUBLIC_SKILL_LABELS = (
+    (("spreadsheet", "excel"), "spreadsheets"),
+    (("document", "docx"), "documents"),
+    (("pdf",), "pdf"),
+    (("presentation", "slides", "powerpoint"), "presentations"),
+    (("imagegen", "image_gen"), "image_generation"),
+    (("browser", "playwright"), "browser_automation"),
+    (("supabase",), "supabase"),
+)
 
 COMPACT_PROMPT = """Create a dense, accurate continuation checkpoint for this task. Preserve everything needed to continue correctly, while removing conversational bulk.
 
@@ -110,7 +140,7 @@ CODEX_RULES_BLOCK_START = "<!-- PRAGMAI_RULES_START -->"
 CODEX_RULES_BLOCK_END = "<!-- PRAGMAI_RULES_END -->"
 PRAGMAI_CORE_RULES = """## PragmAI managed instructions
 
-- Never include prompts, responses, commands, arguments, file names, paths, URLs, transcripts, session identifiers or individual tool names in PragmAI telemetry.
+- Never include prompts, responses, commands, arguments, file names, paths, URLs, transcripts, session identifiers, arbitrary tool names or custom plugin/skill names in PragmAI telemetry. Approved public catalog labels may be reported; unknown names are grouped as `other`.
 - Never expose the private PragmAI configuration. Permanent credentials must not appear in chat, URLs, command arguments, telemetry, versioned documentation or auxiliary files. Enrollment uses a temporary invitation and `pragmai setup`.
 - The employee assistant must not query Supabase or interpret company analytics; an authorized PragmAI administrator performs that analysis centrally.
 - Checking for a PragmAI update is read-only. Install an update only after the user explicitly requests it.
@@ -554,6 +584,15 @@ def categorized_tool_calls(name: str, arguments=None) -> list[str]:
     return [tool_category(value, serialized) for value in nested] or [shell_category(serialized)]
 
 
+def public_activity_label(value, catalog) -> str:
+    """Map transient names to an approved public label, never to arbitrary text."""
+    lowered = str(value or "").lower()
+    for fragments, label in catalog:
+        if any(fragment in lowered for fragment in fragments):
+            return label
+    return "other"
+
+
 def aggregate_character_count(value) -> int:
     """Count returned characters without retaining or emitting their content."""
     if isinstance(value, str):
@@ -584,11 +623,159 @@ def diff_line_counts(value: str) -> tuple[int, int]:
     return added, removed
 
 
+def replacement_line_counts(before: str, after: str) -> tuple[int, int]:
+    """Count changed replacement lines without retaining either text."""
+    added = removed = 0
+    matcher = difflib.SequenceMatcher(
+        None, str(before or "").splitlines(), str(after or "").splitlines(), autojunk=False
+    )
+    for operation, old_start, old_end, new_start, new_end in matcher.get_opcodes():
+        if operation in {"replace", "delete"}:
+            removed += old_end - old_start
+        if operation in {"replace", "insert"}:
+            added += new_end - new_start
+    return added, removed
+
+
+def timestamp_milliseconds(value) -> int | None:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def observed_active_time_ms(records: list[dict], maximum_gap_ms: int = 300_000) -> int:
+    """Estimate active CLI time from transcript intervals, capping idle gaps."""
+    timestamps = sorted({
+        timestamp
+        for record in records
+        if (timestamp := timestamp_milliseconds(record.get("timestamp"))) is not None
+    })
+    return sum(
+        min(current - previous, maximum_gap_ms)
+        for previous, current in zip(timestamps, timestamps[1:])
+        if current >= previous
+    )
+
+
+def claude_code_change(input_value) -> tuple[int, int]:
+    """Derive code-line deltas transiently from a Claude edit input."""
+    if not isinstance(input_value, dict):
+        return 0, 0
+    transient_path = next((
+        input_value.get(key) for key in ("file_path", "notebook_path", "path")
+        if isinstance(input_value.get(key), str)
+    ), "")
+    if not is_code_file(transient_path):
+        return 0, 0
+    before = input_value.get("old_string")
+    after = input_value.get("new_string")
+    if isinstance(before, str) and isinstance(after, str):
+        return replacement_line_counts(before, after)
+    before = input_value.get("old_source")
+    after = input_value.get("new_source")
+    if isinstance(before, str) and isinstance(after, str):
+        return replacement_line_counts(before, after)
+    content = input_value.get("content")
+    if not isinstance(content, str):
+        content = after if isinstance(after, str) else ""
+    return len(content.splitlines()), 0
+
+
+def claude_extended_activity(records: list[dict]) -> dict:
+    """Aggregate privacy-safe Claude workflow signals from one exchange."""
+    tools = {}
+    results = {}
+    plugin_categories = Counter()
+    plugin_names = Counter()
+    skill_names = Counter()
+    skill_calls = subagent_calls = 0
+    for record in records:
+        content = (record.get("message") or {}).get("content") or []
+        if record.get("type") == "assistant":
+            for item in content:
+                if not isinstance(item, dict) or item.get("type") != "tool_use":
+                    continue
+                name = str(item.get("name", ""))
+                lowered = name.lower()
+                tool_id = str(item.get("id", ""))
+                input_value = item.get("input")
+                if lowered.startswith("mcp__"):
+                    plugin_categories.update([tool_category(name, input_value)])
+                    plugin_names.update([public_activity_label(name, PUBLIC_PLUGIN_LABELS)])
+                if lowered == "skill":
+                    skill_calls += 1
+                    transient_skill = ""
+                    if isinstance(input_value, dict):
+                        transient_skill = input_value.get("skill") or input_value.get("name") or ""
+                    skill_names.update([public_activity_label(transient_skill, PUBLIC_SKILL_LABELS)])
+                if lowered in {"task", "agent"}:
+                    subagent_calls += 1
+                code_edit = lowered in {"edit", "write", "notebookedit"}
+                serialized = serialized_arguments(input_value).lower()
+                tools[tool_id] = {
+                    "code_edit": code_edit,
+                    "line_counts": claude_code_change(input_value) if code_edit else (0, 0),
+                    "commit": bool(re.search(r"\bgit\s+commit\b", serialized)),
+                    "pull_request": (
+                        bool(re.search(r"\bgh\s+pr\s+create\b", serialized))
+                        or "create_pull_request" in lowered
+                    ),
+                }
+        elif record.get("type") == "user":
+            for item in content if isinstance(content, list) else []:
+                if isinstance(item, dict) and item.get("type") == "tool_result":
+                    tool_id = str(item.get("tool_use_id", ""))
+                    if tool_id:
+                        results[tool_id] = not bool(item.get("is_error"))
+
+    code_edit_calls = sum(1 for item in tools.values() if item["code_edit"])
+    code_edit_successes = sum(
+        1 for tool_id, item in tools.items()
+        if item["code_edit"] and results.get(tool_id) is True
+    )
+    code_edit_failures = sum(
+        1 for tool_id, item in tools.items()
+        if item["code_edit"] and results.get(tool_id) is False
+    )
+    code_lines_added = code_lines_removed = 0
+    for tool_id, item in tools.items():
+        if item["code_edit"] and results.get(tool_id) is True:
+            added, removed = item["line_counts"]
+            code_lines_added += added
+            code_lines_removed += removed
+    return {
+        "code_lines_added": code_lines_added,
+        "code_lines_removed": code_lines_removed,
+        "plugin_calls": sum(plugin_categories.values()),
+        "plugin_category_counts": dict(sorted(plugin_categories.items())),
+        "plugin_name_counts": dict(sorted(plugin_names.items())),
+        "code_edit_calls": code_edit_calls,
+        "code_edit_successes": code_edit_successes,
+        "code_edit_failures": code_edit_failures,
+        "commits_created": sum(
+            1 for tool_id, item in tools.items() if item["commit"] and results.get(tool_id) is True
+        ),
+        "pull_requests_created": sum(
+            1 for tool_id, item in tools.items()
+            if item["pull_request"] and results.get(tool_id) is True
+        ),
+        "skill_calls": skill_calls,
+        "skill_name_counts": dict(sorted(skill_names.items())),
+        "subagent_calls": subagent_calls,
+    }
+
+
 def codex_extended_activity(records: list[dict]) -> dict | None:
     """Aggregate new Codex activity items into privacy-safe numeric counters."""
     measured = False
     code_lines_added = code_lines_removed = 0
     plugin_categories = Counter()
+    plugin_names = Counter()
+    skill_names = Counter()
     for record in records:
         payload = record.get("payload") or {}
         if record.get("type") != "event_msg" or payload.get("type") != "item_completed":
@@ -597,7 +784,12 @@ def codex_extended_activity(records: list[dict]) -> dict | None:
         item = payload.get("item") or {}
         item_type = str(item.get("type", "")).lower()
         if item_type == "mcptoolcall":
-            plugin_categories.update([tool_category(str(item.get("tool", "")))])
+            transient_name = str(item.get("tool", ""))
+            plugin_categories.update([tool_category(transient_name)])
+            plugin_names.update([public_activity_label(transient_name, PUBLIC_PLUGIN_LABELS)])
+        elif item_type in {"skill", "skillcall"}:
+            transient_name = item.get("skill") or item.get("name")
+            skill_names.update([public_activity_label(transient_name, PUBLIC_SKILL_LABELS)])
         elif item_type == "filechange":
             changes = item.get("changes") or {}
             if not isinstance(changes, dict):
@@ -622,6 +814,9 @@ def codex_extended_activity(records: list[dict]) -> dict | None:
         "code_lines_removed": code_lines_removed,
         "plugin_calls": sum(plugin_categories.values()),
         "plugin_category_counts": dict(sorted(plugin_categories.items())),
+        "plugin_name_counts": dict(sorted(plugin_names.items())),
+        "skill_calls": sum(skill_names.values()),
+        "skill_name_counts": dict(sorted(skill_names.items())),
     }
 
 
@@ -1361,6 +1556,7 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         cache_write_in_input=False,
         compaction_threshold=compaction_threshold,
     )
+    extended_activity = claude_extended_activity(exchange_records)
     if not compaction_threshold:
         usage_metrics["calls_over_compaction_threshold"] = None
     event = {
@@ -1373,7 +1569,10 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         "reasoning_effort": "unknown",
         **classify(user_text, list(category_counts)),
         "duration_ms": iso_duration_ms(first_timestamp, last_timestamp),
+        "active_time_ms": observed_active_time_ms([user_record, *exchange_records]),
+        "active_time_basis": "transcript_intervals_capped_5m_v1",
         **usage_metrics,
+        **extended_activity,
         "tool_category_counts": dict(sorted(category_counts.items())),
         "tool_result_characters": tool_result_characters,
         "post_tool_model_calls": post_tool_calls,
@@ -1394,7 +1593,7 @@ def claude_event(payload: dict, config: dict) -> dict | None:
     return {key: value for key, value in event.items() if value is not None}
 
 
-def send_event(event: dict, config: dict) -> None:
+def post_event(event: dict, config: dict) -> None:
     data = json.dumps(event, separators=(",", ":")).encode("utf-8")
     request = Request(config["endpoint"], data=data, method="POST", headers={
         "Authorization": f"Bearer {config['ingest_secret']}",
@@ -1405,10 +1604,31 @@ def send_event(event: dict, config: dict) -> None:
         with open_https(request, timeout=15) as response:
             if response.status not in (200, 202):
                 raise RuntimeError(f"PragmAI rejected the event ({response.status}).")
-    except HTTPError as error:
-        raise RuntimeError(f"PragmAI rejected the event ({error.code}).") from error
+    except HTTPError:
+        raise
     except URLError as error:
         raise RuntimeError("PragmAI endpoint is unavailable.") from error
+
+
+def telemetry_v7_fallback(event: dict) -> dict:
+    fallback = {key: value for key, value in event.items() if key not in TELEMETRY_V8_FIELDS}
+    fallback["telemetry_version"] = 7
+    return fallback
+
+
+def send_event(event: dict, config: dict) -> None:
+    try:
+        post_event(event, config)
+    except HTTPError as error:
+        if error.code in (400, 422) and event.get("telemetry_version") == TELEMETRY_VERSION:
+            try:
+                post_event(telemetry_v7_fallback(event), config)
+                return
+            except HTTPError as fallback_error:
+                raise RuntimeError(
+                    f"PragmAI rejected the event ({fallback_error.code})."
+                ) from fallback_error
+        raise RuntimeError(f"PragmAI rejected the event ({error.code}).") from error
 
 
 def run_chained_notify(payload_json: str, config: dict) -> None:

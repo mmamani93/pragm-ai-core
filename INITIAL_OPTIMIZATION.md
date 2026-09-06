@@ -33,7 +33,7 @@ Operational commands:
 
 These rules are installed in every mode and are merged without deleting existing instructions:
 
-- never include prompts, responses, commands, arguments, file names, paths, URLs, transcripts, session identifiers, or individual tool names in telemetry;
+- never include prompts, responses, commands, arguments, file names, paths, URLs, transcripts, session identifiers, arbitrary tool names, or custom plugin/skill names in telemetry; only public labels from closed catalogs are allowed and every unknown name is aggregated as `other`;
 - never expose private configuration or keep credentials outside protected local storage;
 - never create local analytics histories, queues, CSV files, or files for the model to process metrics;
 - transform information transiently and send only technical metrics and closed categories;
@@ -168,7 +168,7 @@ After restarting the client:
 3. confirm exactly one row under the correct company and email;
 4. reconcile tokens and internal calls;
 5. verify the telemetry version, effective configuration, and mode;
-6. verify the absence of free text, individual tool names, commands, arguments, paths, URLs, and session identifiers;
+6. verify the absence of free text, arbitrary or custom tool names, commands, arguments, paths, URLs, and session identifiers; public labels must belong to the closed catalogs;
 7. in `experiment`, require a complete assignment; in `always_on`, require ON and no experiment identifiers;
 8. record only pass or fail.
 

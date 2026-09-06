@@ -8,9 +8,9 @@ PragmAI Core is not a substitute for professional, security, compliance, legal, 
 
 ## Privacy boundary
 
-PragmAI Core may send an employee-authorized email plus technical counters and closed categories. It never sends prompts, responses, transcripts, commands, arguments, tool output, file names, paths, URLs, session identifiers, or individual tool names.
+PragmAI Core may send an employee-authorized email plus technical counters, closed categories, and approved public model/plugin/skill labels. It never sends prompts, responses, transcripts, commands, arguments, tool output, file names, paths, URLs, session identifiers, arbitrary tool names, or custom plugin/skill names. Unknown names are emitted only as `other`.
 
-Codex telemetry v5 can emit a closed numeric counterfactual for the current exchange. Telemetry v6 adds a deterministic sensitivity grid at the current compaction threshold, ±25,000 and ±50,000 tokens, plus the original limit. Telemetry v7 adds aggregate applied-code line counters and completed plugin calls grouped into the existing closed technical taxonomy. All source records are processed transiently; only aggregate counters and labeled method/basis values leave the workstation.
+Codex telemetry v5 can emit a closed numeric counterfactual for the current exchange. Telemetry v6 adds a deterministic sensitivity grid at the current compaction threshold, ±25,000 and ±50,000 tokens, plus the original limit. Telemetry v7 adds aggregate applied-code line counters and completed plugin calls. Telemetry v8 adds approved public labels for plugins and skills plus Claude Code active-time, edit-result, commit, pull-request, and subagent counters. All source records are processed transiently; only aggregate counters and closed labels leave the workstation.
 
 See [the telemetry reference](docs/TELEMETRY.md) and [a synthetic complete event](examples/telemetry-event.json).
 

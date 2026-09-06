@@ -112,6 +112,54 @@ class ConnectorTests(unittest.TestCase):
             self.assertIs(connector.open_https(request, 12), response)
         opened.assert_called_once_with(request, timeout=12, context=sentinel)
 
+    def test_event_delivery_falls_back_to_v7_only_for_an_old_schema(self):
+        delivery_config = {
+            **self.config,
+            "endpoint": connector.DEFAULT_ENDPOINT,
+            "ingest_secret": "test-secret",
+        }
+        old_schema = connector.HTTPError(
+            delivery_config["endpoint"], 422, "schema", {}, None,
+        )
+        accepted = mock.MagicMock()
+        accepted.__enter__.return_value.status = 202
+        event = {
+            "telemetry_version": 8,
+            "model_calls": 1,
+            "plugin_calls": 1,
+            "plugin_name_counts": {"supabase": 1},
+            "skill_calls": 1,
+            "skill_name_counts": {"spreadsheets": 1},
+            "active_time_ms": 1000,
+            "active_time_basis": "transcript_intervals_capped_5m_v1",
+        }
+        with mock.patch.object(
+            connector, "open_https", side_effect=[old_schema, accepted],
+        ) as opened:
+            connector.send_event(event, delivery_config)
+
+        first = json.loads(opened.call_args_list[0].args[0].data)
+        second = json.loads(opened.call_args_list[1].args[0].data)
+        self.assertEqual(first["telemetry_version"], 8)
+        self.assertEqual(second["telemetry_version"], 7)
+        self.assertEqual(second["plugin_calls"], 1)
+        for field in connector.TELEMETRY_V8_FIELDS:
+            self.assertNotIn(field, second)
+
+    def test_event_delivery_does_not_retry_authentication_failures(self):
+        delivery_config = {
+            **self.config,
+            "endpoint": connector.DEFAULT_ENDPOINT,
+            "ingest_secret": "test-secret",
+        }
+        unauthorized = connector.HTTPError(
+            delivery_config["endpoint"], 401, "unauthorized", {}, None,
+        )
+        with mock.patch.object(connector, "open_https", side_effect=unauthorized) as opened:
+            with self.assertRaisesRegex(RuntimeError, r"rejected the event \(401\)"):
+                connector.send_event({"telemetry_version": 8}, delivery_config)
+        opened.assert_called_once()
+
     def test_repair_synchronizes_package_managed_standalone_before_reapplying_hooks(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -344,8 +392,8 @@ notify = ["project-specific"]
 
     def setUp(self):
         self.config = {
-            "company_id": "pilot-example",
-            "employee_id": "employee@example.com",
+            "company_id": "pilot-mauro",
+            "employee_id": "mauro@example.com",
             "fingerprint_key": "11" * 32,
             "billing_mode": "subscription",
             "optimization_mode": "experiment",
@@ -392,24 +440,21 @@ notify = ["project-specific"]
 
     def test_private_fingerprint_is_stable_and_contains_no_source_text(self):
         first = connector.recurrence_key(
-            "Review /Users/example-user/secret.txt at https://example.com for 27 customers",
+            "Revisá /Users/mauro/secret.txt en https://example.com para 27 clientes",
             self.config["fingerprint_key"],
         )
         second = connector.recurrence_key(
-            "Review /tmp/other.txt at https://other.example for 99 customers",
+            "Revisá /tmp/other.txt en https://other.example para 99 clientes",
             self.config["fingerprint_key"],
         )
         self.assertEqual(first, second)
         self.assertRegex(first, r"^rt_[a-f0-9]{32}$")
-        self.assertNotIn("review", first)
+        self.assertNotIn("revisa", first)
 
     def test_classifier_uses_fixed_taxonomy_and_coarse_tool_families(self):
-        result = connector.classify("Fix a repository bug", ["shell", "filesystem_write"])
+        result = connector.classify("Corregí un bug del repositorio", ["shell", "filesystem_write"])
         self.assertEqual(result["work_domain"], "software")
         self.assertEqual(result["workflow_pattern"], "code_change")
-        spanish_result = connector.classify("Corregí un bug del repositorio", ["shell", "filesystem_write"])
-        self.assertEqual(spanish_result["work_domain"], "software")
-        self.assertEqual(spanish_result["workflow_pattern"], "code_change")
         self.assertNotIn("automation_score", result)
         self.assertNotIn("automation_confidence", result)
         self.assertNotIn("tool_categories", result)
@@ -418,7 +463,7 @@ notify = ["project-specific"]
         self.assertEqual(connector.tool_category("exec_command", {"cmd": "rg --files"}), "shell_file_inspection")
         self.assertEqual(connector.tool_category("exec_command", {"cmd": "npm test"}), "shell_testing")
         self.assertEqual(connector.tool_category("exec_command", {"cmd": "git status"}), "shell_version_control")
-        self.assertEqual(connector.classify("Hello", [])["workflow_pattern"], "general_assistance")
+        self.assertEqual(connector.classify("Hola", [])["workflow_pattern"], "general_assistance")
 
     def test_usage_aggregation_reports_calls_and_context_distribution(self):
         result = connector.aggregate_usage([
@@ -469,19 +514,26 @@ notify = ["project-specific"]
             {"type": "event_msg", "payload": {"type": "item_completed", "item": {
                 "type": "McpToolCall", "tool": "mcp__cua_repl__js"
             }}},
+            {"type": "event_msg", "payload": {"type": "item_completed", "item": {
+                "type": "SkillCall", "skill": "spreadsheets:Spreadsheets"
+            }}},
         ]
         self.assertEqual(connector.codex_extended_activity(records), {
             "code_lines_added": 4,
             "code_lines_removed": 3,
             "plugin_calls": 2,
             "plugin_category_counts": {"browser": 1, "database": 1},
+            "plugin_name_counts": {"supabase": 1, "unified_computer_use": 1},
+            "skill_calls": 1,
+            "skill_name_counts": {"spreadsheets": 1},
         })
         self.assertIsNone(connector.codex_extended_activity([]))
         self.assertEqual(connector.codex_extended_activity([{
             "type": "event_msg", "payload": {"type": "item_completed", "item": {"type": "AgentMessage"}}
         }]), {
             "code_lines_added": 0, "code_lines_removed": 0,
-            "plugin_calls": 0, "plugin_category_counts": {}
+            "plugin_calls": 0, "plugin_category_counts": {},
+            "plugin_name_counts": {}, "skill_calls": 0, "skill_name_counts": {}
         })
 
     def test_codex_produces_one_content_free_event_per_user_exchange(self):
@@ -504,9 +556,9 @@ notify = ["project-specific"]
                 "type": "agent-turn-complete",
                 "thread-id": "thread-12345678",
                 "turn-id": "turn-abc",
-                "cwd": "/Users/example-user/private-client",
-                "input-messages": ["Fix ACME's code at https://private.example"],
-                "last-assistant-message": "Private response content",
+                "cwd": "/Users/mauro/private-client",
+                "input-messages": ["Arreglá el código del cliente ACME en https://private.example"],
+                "last-assistant-message": "Contenido privado de la respuesta",
             }
             event = connector.codex_event(payload, self.config, root)
 
@@ -519,12 +571,15 @@ notify = ["project-specific"]
         self.assertEqual(event["code_lines_removed"], 1)
         self.assertEqual(event["plugin_calls"], 1)
         self.assertEqual(event["plugin_category_counts"], {"database": 1})
+        self.assertEqual(event["plugin_name_counts"], {"supabase": 1})
+        self.assertEqual(event["skill_calls"], 0)
+        self.assertEqual(event["skill_name_counts"], {})
         self.assertEqual(event["compaction_measurements"][0]["model_calls_after"], 1)
         self.assertEqual(event["compaction_measurements"][0]["tokens_avoided_estimated"], 20_000)
         self.assertEqual(event["config_profile"], "smart_100k")
         self.assertEqual(event["compaction_threshold_tokens"], 127_000)
         self.assertEqual(event["compaction_scope"], "body_after_prefix")
-        self.assertEqual(event["telemetry_version"], 7)
+        self.assertEqual(event["telemetry_version"], 8)
         self.assertEqual(event["experiment_id"], connector.EXPERIMENT_ID)
         self.assertEqual(event["experiment_unit_id"], "eu_" + "aa" * 16)
         self.assertTrue(event["optimization_enabled"])
@@ -556,7 +611,7 @@ notify = ["project-specific"]
                 {"timestamp": "2026-08-24T12:00:06Z", "type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-abc"}},
             ]
             session.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
-            payload = {"thread-id": "thread-12345678", "turn-id": "turn-abc", "input-messages": ["Investigate and fix"]}
+            payload = {"thread-id": "thread-12345678", "turn-id": "turn-abc", "input-messages": ["Investigá y corregí"]}
             event = connector.codex_event(payload, self.config, root)
 
         self.assertEqual(event["model_calls"], 1)
@@ -668,7 +723,7 @@ notify = ["project-specific"]
         with tempfile.TemporaryDirectory() as directory:
             transcript = Path(directory) / "claude.jsonl"
             records = [
-                {"type": "user", "uuid": "user-1", "timestamp": "2026-08-24T13:00:00Z", "message": {"content": "Analyze ACME's confidential contract"}},
+                {"type": "user", "uuid": "user-1", "timestamp": "2026-08-24T13:00:00Z", "message": {"content": "Analizá el contrato secreto de ACME"}},
                 {"type": "assistant", "timestamp": "2026-08-24T13:00:01Z", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 100, "cache_read_input_tokens": 50, "cache_creation_input_tokens": 25, "output_tokens": 20}, "content": [{"type": "tool_use", "name": "Read", "input": {"path": "/secret"}}]}},
                 {"type": "user", "timestamp": "2026-08-24T13:00:02Z", "message": {"content": [{"type": "tool_result", "content": "raw secret"}]}},
                 {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-08-24T13:00:02Z", "compactMetadata": {"preTokens": 99999, "postTokens": 12000}},
@@ -683,13 +738,19 @@ notify = ["project-specific"]
         self.assertEqual(event["tokens_input"], 375)
         self.assertEqual(event["tool_category_counts"], {"filesystem_read": 1})
         self.assertEqual(event["tool_result_characters"], len("raw secret"))
+        self.assertEqual(event["active_time_ms"], 3_000)
+        self.assertEqual(event["active_time_basis"], "transcript_intervals_capped_5m_v1")
+        self.assertEqual(event["code_edit_calls"], 0)
+        self.assertEqual(event["plugin_name_counts"], {})
+        self.assertEqual(event["skill_name_counts"], {})
+        self.assertEqual(event["telemetry_version"], 8)
         self.assertEqual(event["config_profile"], "smart_100k")
         self.assertEqual(event["compaction_threshold_tokens"], 127_000)
         self.assertEqual(event["compaction_scope"], "approximate_total")
         self.assertEqual(event["compaction_measurements"][0]["model_calls_after"], 1)
         self.assertEqual(event["compaction_measurements"][0]["compacted_context_tokens"], 12_000)
         serialized = json.dumps(event)
-        for sensitive in ("ACME", "confidential contract", "/secret", "raw secret", "private answer", "synthetic private", "session-secret"):
+        for sensitive in ("ACME", "contrato secreto", "/secret", "raw secret", "private answer", "synthetic private", "session-secret"):
             self.assertNotIn(sensitive, serialized)
 
     def test_claude_code_accepts_direct_compaction_boundary_records(self):
@@ -702,6 +763,55 @@ notify = ["project-specific"]
         self.assertEqual(len(measurements), 1)
         self.assertEqual(measurements[0]["compacted_context_tokens"], 10_000)
         self.assertEqual(measurements[0]["first_post_input_tokens"], 12_000)
+
+    def test_claude_extended_activity_keeps_only_aggregate_public_labels(self):
+        records = [
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "edit-ok", "name": "Edit", "input": {
+                    "file_path": "/private/client/secret.py", "old_string": "old\nkeep",
+                    "new_string": "new\nsecond\nkeep"
+                }},
+                {"type": "tool_use", "id": "write-failed", "name": "Write", "input": {
+                    "file_path": "/private/client/secret.ts", "content": "one\ntwo"
+                }},
+                {"type": "tool_use", "id": "plugin-public", "name": "mcp__supabase__execute_sql", "input": {"query": "private"}},
+                {"type": "tool_use", "id": "plugin-custom", "name": "mcp__internal_customer__secret", "input": {}},
+                {"type": "tool_use", "id": "skill-public", "name": "Skill", "input": {"skill": "spreadsheets:Spreadsheets"}},
+                {"type": "tool_use", "id": "skill-custom", "name": "Skill", "input": {"skill": "customer-secret-workflow"}},
+                {"type": "tool_use", "id": "subagent", "name": "Task", "input": {"prompt": "private"}},
+                {"type": "tool_use", "id": "commit", "name": "Bash", "input": {"command": "git commit -m private"}},
+                {"type": "tool_use", "id": "pull-request", "name": "Bash", "input": {"command": "gh pr create --title private"}},
+            ]}},
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": "edit-ok", "content": "private"},
+                {"type": "tool_result", "tool_use_id": "write-failed", "is_error": True, "content": "private"},
+                {"type": "tool_result", "tool_use_id": "plugin-public", "content": "private"},
+                {"type": "tool_result", "tool_use_id": "plugin-custom", "content": "private"},
+                {"type": "tool_result", "tool_use_id": "commit", "content": "private"},
+                {"type": "tool_result", "tool_use_id": "pull-request", "content": "private"},
+            ]}},
+        ]
+        result = connector.claude_extended_activity(records)
+        self.assertEqual(result, {
+            "code_lines_added": 2, "code_lines_removed": 1,
+            "plugin_calls": 2, "plugin_category_counts": {"database": 1, "external_app": 1},
+            "plugin_name_counts": {"other": 1, "supabase": 1},
+            "code_edit_calls": 2, "code_edit_successes": 1, "code_edit_failures": 1,
+            "commits_created": 1, "pull_requests_created": 1,
+            "skill_calls": 2, "skill_name_counts": {"other": 1, "spreadsheets": 1},
+            "subagent_calls": 1,
+        })
+        serialized = json.dumps(result)
+        for sensitive in ("secret", "private", "internal_customer", "customer-secret-workflow"):
+            self.assertNotIn(sensitive, serialized)
+
+    def test_active_time_caps_idle_transcript_gaps(self):
+        records = [
+            {"timestamp": "2026-08-24T13:00:00Z"},
+            {"timestamp": "2026-08-24T13:00:01Z"},
+            {"timestamp": "2026-08-24T13:10:01Z"},
+        ]
+        self.assertEqual(connector.observed_active_time_ms(records), 301_000)
 
     def test_toml_update_only_replaces_top_level_settings(self):
         original = 'notify = ["old"]\n[project]\nnotify = ["nested"]\n'
@@ -970,6 +1080,23 @@ notify = ["project-specific"]
                 self.assertIn("pragmai-windows-x64.zip", text)
             self.assertIn("# Existing Codex rule", codex)
             self.assertIn("# Existing Claude rule", claude)
+
+    def test_claude_update_notice_does_not_create_false_configuration_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            claude_dir = home / ".claude"
+            claude_dir.mkdir()
+            (claude_dir / "settings.json").write_text("{}\n", encoding="utf-8")
+            (claude_dir / "CLAUDE.md").write_text("# Existing Claude rule\n", encoding="utf-8")
+            major, minor, patch = connector.version_tuple(connector.VERSION)
+            newer_version = f"{major}.{minor}.{patch + 1}"
+            config = {**self.config, "last_update_notice_version": newer_version}
+            with mock.patch.object(connector.Path, "home", return_value=home):
+                connector.install_claude(config, True, make_backup=False)
+                status = connector.claude_configuration_status(True, config)
+
+            self.assertEqual(status["config_status"], "matched")
+            self.assertEqual(status["configured_compaction_threshold_tokens"], 128_000)
 
     def test_periodic_update_check_notifies_once_per_version(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -24,6 +24,7 @@ The connector uses counters exposed by the local client. Missing data remains ab
 |---|---|
 | `model`, `reasoning_effort` | Model configuration reported by the client. |
 | `duration_ms` | Elapsed time covered by the exchange when observable. |
+| `active_time_ms`, `active_time_basis` | Claude Code active-time estimate from observed transcript intervals, with idle gaps capped at five minutes. It is not the provider OpenTelemetry metric. |
 | `tokens_input`, `tokens_output` | Aggregate input and output tokens. |
 | `tokens_cache_read`, `tokens_cache_write` | Aggregate cache counters when exposed. |
 | `tokens_cache_write_1h` | Subset of cache-write tokens using a one-hour TTL when the client exposes it. |
@@ -40,7 +41,11 @@ The connector uses counters exposed by the local client. Missing data remains ab
 
 `tool_category_counts` contains counts for closed tool families such as file inspection, testing, version control, or filesystem writing. It never contains individual tool names, commands, arguments, or results. `tool_result_characters` is only the aggregate character count of observed local tool results.
 
-Codex telemetry v7 can also emit `code_lines_added`, `code_lines_removed`, `plugin_calls`, and `plugin_category_counts`. Code lines come only from explicit completed `FileChange` items for recognized code files. Plugin calls come only from explicit completed MCP tool items and are grouped into the existing closed taxonomy. Null means the client did not expose the activity signal; zero means it was measured and no matching activity occurred. File names, paths, diffs, content, plugin names, and individual tool names are discarded locally. Skill use is not inferred when the client does not expose an explicit reliable signal.
+Codex telemetry v7 can emit `code_lines_added`, `code_lines_removed`, `plugin_calls`, and `plugin_category_counts`. Telemetry v8 adds `plugin_name_counts` and `skill_name_counts` using closed catalogs of approved public product labels. Any custom or unknown name becomes `other`; the original name is discarded locally.
+
+Claude Code telemetry v8 can additionally emit `active_time_ms`, `code_edit_calls`, `code_edit_successes`, `code_edit_failures`, `commits_created`, `pull_requests_created`, `skill_calls`, and `subagent_calls`. Line counts are derived transiently only for recognized code-file edits and are counted only when a structurally successful tool result is observed. Edit success means tool execution success, not human acceptance of a suggestion. Commits and pull-request creation are recognized transiently and emitted only as counts. Null means the client did not expose the signal; zero means it was measured and no matching activity occurred.
+
+File names, paths, diffs, content, arguments, commands, custom names, and individual agent tasks are always discarded locally. PragmAI does not enable Claude observability options that include prompts, tool details/content, raw API bodies, session identifiers, or trace identifiers.
 
 PragmAI Core does not emit automation scores, recommendations, quality judgments, or suggested improvements. Those are outside the public collection layer.
 
@@ -61,8 +66,8 @@ PragmAI Core does not emit automation scores, recommendations, quality judgments
 | `billing_mode` | Subscription, API, or unknown; it is not a price or charge. |
 | `recurrence_key` | HMAC-derived shape identifier. It cannot be reversed into the source text and is not a session identifier. |
 
-The v5 counterfactual, v6 sensitivity grid, and v7 activity counters read Codex technical records only transiently. The session identifier, call sequence, source records, file metadata, diffs, plugin names, and conversation content never enter the event. All three run entirely as deterministic local software and do not call the model. The hosted service values these numeric aggregates and labels inferred values separately from observed counters.
+The v5 counterfactual, v6 sensitivity grid, and v7/v8 activity counters read local technical records only transiently. The session identifier, call sequence, source records, file metadata, diffs, custom names, and conversation content never enter the event. The transformations run entirely as deterministic local software and do not call the model. The hosted service values these numeric aggregates and labels inferred values separately from observed counters.
 
 ## Explicitly forbidden
 
-The connector and server schema reject prompts, responses, free text, transcripts, commands, arguments, individual tool names, tool output, file names, paths, URLs, session or thread identifiers, and unknown fields. Privacy tests verify representative cases before every release.
+The connector and server schema reject prompts, responses, free text, transcripts, commands, arguments, arbitrary tool names, custom plugin/skill names, tool output, file names, paths, URLs, session/thread/trace identifiers, and unknown fields. Only labels from the public closed catalogs are accepted. Privacy tests verify representative cases before every release.

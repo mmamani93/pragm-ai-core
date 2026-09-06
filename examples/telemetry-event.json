@@ -35,6 +35,12 @@
     "browser": 1,
     "database": 1
   },
+  "plugin_name_counts": {
+    "supabase": 1,
+    "unified_computer_use": 1
+  },
+  "skill_calls": 0,
+  "skill_name_counts": {},
   "tool_result_characters": 26,
   "post_tool_model_calls": 1,
   "continuation_model_calls": 0,
@@ -90,8 +96,8 @@
   "compaction_threshold_tokens": 127000,
   "compaction_scope": "body_after_prefix",
   "billing_mode": "subscription",
-  "connector_version": "0.7.13",
-  "telemetry_version": 7,
+  "connector_version": "0.7.14",
+  "telemetry_version": 8,
   "optimization_enabled": true,
   "configured_compaction_threshold_tokens": 100000,
   "config_status": "matched",
