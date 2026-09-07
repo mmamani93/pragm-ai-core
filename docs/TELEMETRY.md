@@ -55,7 +55,7 @@ PragmAI Core does not emit automation scores, recommendations, quality judgments
 |---|---|
 | `post_tool_model_calls` | Model calls observed after a tool result. |
 | `continuation_model_calls` | Continuation calls observed inside the exchange. |
-| `compaction_measurements` | Closed numeric measurements around observed compacting boundaries. Empty when no boundary is measurable. |
+| `compaction_measurements` | Closed numeric measurements around observed compacting boundaries. Claude assigns each native boundary to the first exchange with subsequent model usage, including idle/manual compactions; trailing boundaries wait for subsequent usage. The first post-compaction input is separate from the compacted context size, which is absent unless explicitly provided. Empty means no boundary was captured in this exchange, not proof of no compaction. |
 | `compaction_counterfactual` | Optional Codex v5 aggregate that replays the technical context trajectory against the original compaction threshold. It contains method, coverage, threshold and checkpoint bases, aggregate input, and estimated original compaction counters for the current exchange. It is emitted only in permanently enabled mode when the local session has enough compacting evidence. |
 | `compaction_sensitivity` | Optional Codex v6 aggregate that deterministically replays a closed grid at the current threshold, ±25,000 and ±50,000 tokens, plus the original limit. It contains only scenario totals and labeled threshold/checkpoint bases, including a profile checkpoint estimate for sessions that never compacted. |
 | `config_profile` | Closed public name of the active local profile. |

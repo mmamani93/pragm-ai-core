@@ -835,6 +835,92 @@ notify = ["project-specific"]
         self.assertEqual(measurements[0]["compacted_context_tokens"], 10_000)
         self.assertEqual(measurements[0]["first_post_input_tokens"], 12_000)
 
+    def claude_event_from_records(self, records):
+        with tempfile.TemporaryDirectory() as directory:
+            transcript = Path(directory) / "synthetic.jsonl"
+            transcript.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
+            return connector.claude_event({"session_id": "synthetic-session", "transcript_path": str(transcript)}, self.config)
+
+    def test_claude_idle_compaction_is_claimed_once_without_previous_exchange_usage(self):
+        records = [
+            {"type": "user", "uuid": "first", "message": {"content": "first request"}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 90_000, "output_tokens": 50}}},
+            {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"preTokens": 90_000}},
+            {"type": "user", "isCompactSummary": True, "message": {"content": "private summary"}},
+        ]
+        # A boundary after the last call belongs to the next consuming exchange.
+        self.assertEqual(self.claude_event_from_records(records)["compaction_measurements"], [])
+        records.extend([
+            {"type": "user", "uuid": "second", "message": {"content": "next request"}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 12_000, "output_tokens": 20}}},
+        ])
+        event = self.claude_event_from_records(records)
+        self.assertEqual(event["model_calls"], 1)
+        self.assertEqual(event["tokens_input"], 12_000)
+        measurement, = event["compaction_measurements"]
+        self.assertTrue(measurement["before_exchange"])
+        self.assertEqual(measurement["pre_input_tokens"], 90_000)
+        self.assertEqual(measurement["first_post_input_tokens"], 12_000)
+        self.assertEqual(measurement["tokens_avoided_estimated"], 78_000)
+        self.assertNotIn("compacted_context_tokens", measurement)
+        repeated = self.claude_event_from_records(records)
+        self.assertEqual(repeated["event_id"], event["event_id"])
+        self.assertEqual(repeated["compaction_measurements"], event["compaction_measurements"])
+        records.extend([
+            {"type": "user", "uuid": "third", "message": {"content": "another request"}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 13_000, "output_tokens": 10}}},
+        ])
+        self.assertEqual(self.claude_event_from_records(records)["compaction_measurements"], [])
+
+    def test_claude_compacted_continuation_without_original_user_does_not_classify_summary(self):
+        records = [
+            {"type": "system", "subtype": "compact_boundary", "compact_metadata": {"pre_tokens": 90_000}},
+            {"type": "user", "uuid": "summary", "message": {"isCompactSummary": True, "content": "private legal contract summary"}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 10_000, "output_tokens": 20}}},
+            {"type": "user", "isMeta": True, "message": {"content": "private internal reminder"}},
+        ]
+        event = self.claude_event_from_records(records)
+        self.assertEqual(event["model_calls"], 1)
+        self.assertEqual(event["compaction_measurements"][0]["pre_input_tokens"], 90_000)
+        self.assertNotIn("recurrence_key", event)
+        self.assertEqual(event["task_type"], connector.classify("", [])["task_type"])
+        for private in ("private", "contract", "synthetic-session"):
+            self.assertNotIn(private, json.dumps(event))
+        self.assertIsNone(self.claude_event_from_records(records[:2]))
+
+    def test_claude_multiple_compactions_keep_separate_post_segments(self):
+        records = [
+            {"type": "user", "uuid": "first", "message": {"content": "request"}},
+            {"type": "compact_boundary", "compactMetadata": {"preTokens": 90_000}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 10_000, "output_tokens": 10}}},
+            {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"preTokens": 95_000}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 12_000, "output_tokens": 20}}},
+        ]
+        event = self.claude_event_from_records(records)
+        first, second = event["compaction_measurements"]
+        self.assertEqual([first["position"], second["position"]], [1, 2])
+        self.assertEqual([first["model_calls_after"], second["model_calls_after"]], [1, 1])
+        self.assertEqual(first["post_input_tokens"] + second["post_input_tokens"], event["tokens_input"])
+        self.assertFalse(first["before_exchange"])
+        records.extend([
+            {"type": "user", "uuid": "next", "message": {"content": "next request"}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 13_000, "output_tokens": 20}}},
+        ])
+        self.assertEqual(self.claude_event_from_records(records)["compaction_measurements"], [])
+
+    def test_claude_missing_compaction_metadata_does_not_invent_savings(self):
+        records = [
+            {"type": "compact_boundary"},
+            {"type": "system", "message": {"usage": {"input_tokens": 999_999}}},
+            {"type": "assistant", "message": {"usage": {"input_tokens": 12_000}}},
+        ]
+        measurement, = connector.compaction_measurements_for_claude(records)
+        self.assertEqual(measurement["measurement_basis"], "unavailable")
+        self.assertEqual(measurement["tokens_avoided_estimated"], 0)
+        self.assertEqual(measurement["model_calls_after"], 1)
+        self.assertNotIn("pre_input_tokens", measurement)
+        self.assertNotIn("compacted_context_tokens", measurement)
+
     def test_claude_extended_activity_keeps_only_aggregate_public_labels(self):
         records = [
             {"type": "assistant", "message": {"content": [

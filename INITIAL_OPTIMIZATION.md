@@ -105,7 +105,7 @@ The local `notify` hook locates the completed exchange in the telemetry maintain
 
 ### Claude Code
 
-The `Stop` hook takes only the latest human-initiated exchange, aggregates its calls, and reduces tools to closed families. This integration covers Claude Code, not the claude.ai website.
+The `Stop` hook aggregates the latest exchange and reduces tools to closed families. It detects native compaction markers within an exchange or between messages, assigning each to the first exchange with subsequent model usage without counting it again. A compaction without later calls waits for the next exchange. When only the synthetic summary remains, it captures the continuation without classifying that summary or generating recurrence. Compacted context size is reported only when explicitly provided; subsequent input is a separate metric. This integration covers Claude Code, not the claude.ai website.
 
 ### Common transformations
 

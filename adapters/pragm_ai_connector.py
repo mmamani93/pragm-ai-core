@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.15"
+VERSION = "0.7.16"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 8
 TELEMETRY_V8_FIELDS = {
@@ -1441,35 +1441,45 @@ def is_claude_compact_summary(record: dict) -> bool:
     return record.get("isCompactSummary") is True or message.get("isCompactSummary") is True
 
 
-def compaction_measurements_for_claude(records: list[dict]) -> list[dict]:
+def claude_usage(record: dict) -> dict:
+    if record.get("type") != "assistant":
+        return {}
+    usage = (record.get("message") or {}).get("usage") or {}
+    return usage if claude_input_tokens(usage) or integer(usage.get("output_tokens")) else {}
+
+
+def compaction_measurements_for_claude(
+    records: list[dict], exchange_start: int = 0, window_start: int = 0,
+    window_end: int | None = None,
+) -> list[dict]:
+    window_end = len(records) if window_end is None else window_end
     markers = [
-        index for index, record in enumerate(records)
-        if is_claude_compaction_boundary(record)
+        index for index in range(window_start, window_end)
+        if is_claude_compaction_boundary(records[index])
     ]
     measurements = []
     for position, marker in enumerate(markers, 1):
-        next_marker = markers[position] if position < len(markers) else len(records)
-        metadata = records[marker].get("compactMetadata") or {}
-        pre_input = integer(metadata.get("preTokens")) or None
+        next_marker = markers[position] if position < len(markers) else window_end
+        metadata = records[marker].get("compactMetadata") or records[marker].get("compact_metadata") or {}
+        pre_input = integer(metadata.get("preTokens", metadata.get("pre_tokens"))) or None
         pre_cached = None
         for index in range(marker - 1, -1, -1):
-            message = records[index].get("message") or {}
-            usage = message.get("usage") or {}
+            usage = claude_usage(records[index])
             if claude_input_tokens(usage):
                 pre_cached = integer(usage.get("cache_read_input_tokens")) or None
                 break
         post_usages = []
-        for record in records[marker + 1:next_marker]:
-            usage = (record.get("message") or {}).get("usage") or {}
-            if claude_input_tokens(usage) or integer(usage.get("output_tokens")):
+        for record in records[max(marker + 1, exchange_start):next_marker]:
+            usage = claude_usage(record)
+            if usage:
                 post_usages.append(usage)
         post_inputs = [claude_input_tokens(usage) for usage in post_usages]
         first_post = post_inputs[0] if post_inputs else None
-        compacted_context = integer(metadata.get("postTokens")) or first_post
+        compacted_context = integer(metadata.get("postTokens", metadata.get("post_tokens"))) or None
         saved_per_call = max((pre_input or 0) - (first_post or 0), 0)
         measurement = {
             "position": position,
-            "before_exchange": False,
+            "before_exchange": marker < exchange_start,
             "pre_input_tokens": pre_input,
             "pre_cached_tokens": min(pre_cached or 0, pre_input or 0) if pre_input else None,
             "compacted_context_tokens": compacted_context,
@@ -1491,22 +1501,33 @@ def claude_event(payload: dict, config: dict) -> dict | None:
     with transcript.open(encoding="utf-8") as handle:
         for raw in handle:
             try:
-                records.append(json.loads(raw))
+                record = json.loads(raw)
+                if isinstance(record, dict):
+                    records.append(record)
             except json.JSONDecodeError:
                 continue
     last_user = None
     for index, record in enumerate(records):
-        if record.get("type") != "user" or is_claude_compact_summary(record):
+        if record.get("type") != "user" or is_claude_compact_summary(record) or record.get("isMeta") is True:
             continue
         content = (record.get("message") or {}).get("content")
         if isinstance(content, list) and content and all(isinstance(item, dict) and item.get("type") == "tool_result" for item in content):
             continue
         if text_from_content(content).strip():
             last_user = index
+    original_user_available = last_user is not None
     if last_user is None:
-        return None
+        # A resumed compacted transcript may retain only its synthetic summary.
+        # Use its stable identity for this continuation, never its text to classify it.
+        last_boundary = next((index for index in range(len(records) - 1, -1, -1)
+                              if is_claude_compaction_boundary(records[index])), None)
+        if last_boundary is not None:
+            last_user = next((index for index in range(last_boundary + 1, len(records))
+                              if is_claude_compact_summary(records[index])), None)
+        if last_user is None:
+            return None
     user_record = records[last_user]
-    user_text = text_from_content((user_record.get("message") or {}).get("content"))
+    user_text = text_from_content((user_record.get("message") or {}).get("content")) if original_user_available else ""
     usages = []
     category_counts = Counter()
     tool_result_characters = 0
@@ -1544,7 +1565,16 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         return None
     session_id = str(payload.get("session_id", "session"))
     exchange_marker = str(user_record.get("uuid") or first_timestamp or last_user)
-    compaction_measurements = compaction_measurements_for_claude(exchange_records)
+    # Claim a boundary in the first exchange with a subsequent observed model call.
+    # This includes idle/manual compactions before the human prompt, and leaves
+    # trailing boundaries for the next exchange instead of counting them twice.
+    previous_usage = next((index for index in range(last_user - 1, -1, -1)
+                           if claude_usage(records[index])), -1)
+    last_usage = max(index for index in range(last_user + 1, len(records))
+                     if claude_usage(records[index]))
+    compaction_measurements = compaction_measurements_for_claude(
+        records, last_user + 1, previous_usage + 1, last_usage + 1,
+    )
     optimization = active_optimization_state(config)
     optimization_enabled = optimization["optimization_enabled"]
     configuration = claude_configuration_status(optimization_enabled, config)
