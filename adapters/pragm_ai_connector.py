@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.14"
+VERSION = "0.7.15"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 8
 TELEMETRY_V8_FIELDS = {
@@ -42,7 +42,7 @@ TELEMETRY_V8_FIELDS = {
     "skill_name_counts",
     "subagent_calls",
 }
-EXPERIMENT_ID = "optimization_3day_crossover_v1"
+EXPERIMENT_ID = "optimization_3day_crossover_v2"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
 OPTIMIZATION_MODES = {"experiment", "always_on"}
 DEFAULT_ENDPOINT = "https://m-pragm-ai.vercel.app/api/events"
@@ -435,17 +435,16 @@ def experiment_assignment(config: dict, moment: datetime | None = None) -> dict:
     block = int(current.timestamp()) // EXPERIMENT_BLOCK_SECONDS
     period = f"B{block}"
     participant = f"{EXPERIMENT_ID}:{config['company_id']}:{config['employee_id']}"
-    digest = hmac.new(
-        bytes.fromhex(config["fingerprint_key"]), participant.encode("utf-8"), hashlib.sha256
-    ).digest()
+    assignment_digest = hashlib.sha256(participant.encode("utf-8")).digest()
+    unit_key = str(config.get("ingest_secret") or config["fingerprint_key"]).encode("utf-8")
     unit_digest = hmac.new(
-        bytes.fromhex(config["fingerprint_key"]), f"{participant}:{period}".encode("utf-8"), hashlib.sha256
+        unit_key, f"{participant}:{period}".encode("utf-8"), hashlib.sha256
     ).hexdigest()
     return {
         "experiment_id": EXPERIMENT_ID,
         "experiment_unit_id": "eu_" + unit_digest[:32],
         "experiment_period": period,
-        "optimization_enabled": bool((digest[0] & 1) ^ (block & 1)),
+        "optimization_enabled": bool((assignment_digest[0] & 1) ^ (block & 1)),
     }
 
 
@@ -465,7 +464,7 @@ def active_optimization_state(config: dict) -> dict:
     experiment = config.get("active_experiment")
     if (
         not isinstance(experiment, dict)
-        or experiment.get("experiment_id") != EXPERIMENT_ID
+        or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,63}", str(experiment.get("experiment_id", "")))
         or not re.fullmatch(r"eu_[a-f0-9]{32}", str(experiment.get("experiment_unit_id", "")))
         or not isinstance(experiment.get("optimization_enabled"), bool)
     ):
@@ -2209,7 +2208,13 @@ def periodic_experiment_check(config: dict, moment: datetime | None = None) -> N
         return
     assignment = experiment_assignment(config, moment)
     active = config.get("active_experiment")
-    if isinstance(active, dict) and active.get("experiment_unit_id") == assignment["experiment_unit_id"]:
+    same_unit = (
+        isinstance(active, dict)
+        and active.get("experiment_unit_id") == assignment["experiment_unit_id"]
+    )
+    if same_unit and not managed_configuration_has_drift(
+        config, bool(assignment["optimization_enabled"])
+    ):
         return
     try:
         apply_experiment_assignment(config, assignment, make_backup=False)
@@ -2217,6 +2222,19 @@ def periodic_experiment_check(config: dict, moment: datetime | None = None) -> N
     except Exception:
         # A/B rotation is best-effort; preserve the previous, truthfully labelled assignment on failure.
         pass
+
+
+def managed_configuration_has_drift(config: dict, optimization_enabled: bool) -> bool:
+    clients = config.get("installed_clients")
+    if not isinstance(clients, list) or not clients:
+        detected = detect_client()
+        clients = ["codex", "claude-code"] if detected == "both" else [detected]
+    statuses = []
+    if "codex" in clients:
+        statuses.append(codex_configuration_status(optimization_enabled, config))
+    if "claude-code" in clients:
+        statuses.append(claude_configuration_status(optimization_enabled, config))
+    return any(status.get("config_status") == "drift" for status in statuses)
 
 
 def periodic_update_check(config: dict, now: int | None = None) -> None:

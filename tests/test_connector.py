@@ -394,6 +394,7 @@ notify = ["project-specific"]
         self.config = {
             "company_id": "pilot-mauro",
             "employee_id": "mauro@example.com",
+            "ingest_secret": "stable-installation-secret",
             "fingerprint_key": "11" * 32,
             "billing_mode": "subscription",
             "optimization_mode": "experiment",
@@ -425,6 +426,42 @@ notify = ["project-specific"]
         self.assertGreater(enabled, 70)
         self.assertLess(enabled, 130)
 
+    def test_experiment_arm_is_stable_across_installation_secrets(self):
+        moment = datetime(2026, 8, 25, tzinfo=timezone.utc)
+        first = connector.experiment_assignment(self.config, moment)
+        second = connector.experiment_assignment({
+            **self.config,
+            "ingest_secret": "another-installation-secret",
+            "fingerprint_key": "22" * 32,
+        }, moment)
+
+        self.assertEqual(first["optimization_enabled"], second["optimization_enabled"])
+        self.assertNotEqual(first["experiment_unit_id"], second["experiment_unit_id"])
+
+    def test_experiment_unit_survives_fingerprint_rotation(self):
+        moment = datetime(2026, 8, 25, tzinfo=timezone.utc)
+        first = connector.experiment_assignment(self.config, moment)
+        second = connector.experiment_assignment({
+            **self.config,
+            "fingerprint_key": "22" * 32,
+        }, moment)
+
+        self.assertEqual(first, second)
+
+    def test_active_state_preserves_previous_experiment_until_configuration_rotates(self):
+        legacy = {
+            **self.config,
+            "active_experiment": {
+                **self.config["active_experiment"],
+                "experiment_id": "optimization_3day_crossover_v1",
+            },
+        }
+
+        self.assertEqual(
+            connector.active_optimization_state(legacy)["experiment_id"],
+            "optimization_3day_crossover_v1",
+        )
+
     def test_always_on_mode_has_no_experiment_identity(self):
         state = connector.active_optimization_state({
             **self.config,
@@ -437,6 +474,40 @@ notify = ["project-specific"]
         with mock.patch.object(connector, "experiment_assignment") as assignment:
             connector.periodic_experiment_check(config)
         assignment.assert_not_called()
+
+    def test_periodic_experiment_check_repairs_drift_inside_the_same_unit(self):
+        moment = datetime(2026, 8, 25, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            claude_dir = home / ".claude"
+            claude_dir.mkdir()
+            (claude_dir / "settings.json").write_text("{}\n", encoding="utf-8")
+            (claude_dir / "CLAUDE.md").write_text("# Existing rule\n", encoding="utf-8")
+            config_path = home / "config.json"
+            config = {
+                **self.config,
+                "installed_clients": ["claude-code"],
+                "active_experiment": connector.experiment_assignment(self.config, moment),
+            }
+            enabled = config["active_experiment"]["optimization_enabled"]
+            with (
+                mock.patch.object(connector.Path, "home", return_value=home),
+                mock.patch.object(connector, "CONFIG_FILE", config_path),
+            ):
+                connector.install_claude(config, enabled, make_backup=False)
+                (claude_dir / "CLAUDE.md").write_text("# Managed block was changed\n", encoding="utf-8")
+                self.assertEqual(
+                    connector.claude_configuration_status(enabled, config)["config_status"],
+                    "drift",
+                )
+
+                connector.periodic_experiment_check(config, moment)
+
+                self.assertEqual(
+                    connector.claude_configuration_status(enabled, config)["config_status"],
+                    "matched",
+                )
+                self.assertTrue(config_path.exists())
 
     def test_private_fingerprint_is_stable_and_contains_no_source_text(self):
         first = connector.recurrence_key(
