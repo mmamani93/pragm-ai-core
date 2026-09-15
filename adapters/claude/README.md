@@ -77,6 +77,8 @@ No declarar activa la integración hasta realizar esta prueba en el entorno real
 
 Como máximo una vez cada 24 horas de uso, el conector puede comprobar un manifiesto oficial sin llamar al modelo ni enviar telemetría adicional. Verifica la firma antes de confiar en versión, ubicaciones o hashes y sólo instala después de autorización explícita.
 
+Desde 0.7.18 en Windows, una solicitud autorizada de `pragmai update` descarga desde WinGet o, si no está disponible, desde GitHub; verifica el archivo y ejecuta automáticamente `repair` y `doctor` mediante un proceso auxiliar. `update-status` distingue inicio pendiente, éxito y fallo. Las instalaciones hasta 0.7.17 necesitan una actualización inicial asistida para incorporar este comando.
+
 El actualizador conserva empresa, correo, credencial, modo, hooks y configuración base. Rechaza modificaciones, downgrades y activos que no coincidan con el manifiesto firmado.
 
 Si una instalación se revoca o compromete, Mauro crea una invitación nueva y el empleado repite `pragmai setup`. No se recuperan ni redistribuyen credenciales anteriores. `pragmai uninstall` retira sólo cambios administrados, restaura hooks previos y conserva respaldos recuperables.

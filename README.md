@@ -30,6 +30,8 @@ After installation, the public interface is:
 pragmai setup
 pragmai doctor
 pragmai check-update
+pragmai update
+pragmai update-status
 pragmai repair
 pragmai uninstall
 ```
@@ -37,6 +39,8 @@ pragmai uninstall
 `setup` first detects Codex and Claude Code. It stops without changes if neither is installed, uses the only detected client automatically, or asks the employee to choose one or both when both are available. It then asks for the employee-authorized email and requests a short-lived pairing. It prints only a public code, which the employee authorizes from the manually shared one-use invitation link. The hosted service then delivers an individual revocable credential directly to the executable. The temporary link may travel through a trusted chat, but no permanent credential appears in chat, URLs, or command arguments.
 
 The local connector stores that credential only in its private user configuration and binds every event to the invited company and email. `doctor` checks configuration, integrity, and package/hook synchronization without reading company analytics or printing credentials. After an authorized package or artifact update, `repair` atomically synchronizes the private copy used by hooks and retains a recoverable backup. `uninstall` removes only PragmAI-managed changes and restores the captured pre-installation configuration.
+
+Windows standalone releases from 0.7.18 implement `update`: select the signed manifest version, try a WinGet download and fall back to the official GitHub release if the package/version or WinGet is absent. Verify the GitHub digest and executable version, replace through a separate helper, retain a backup, and run `repair` and `doctor`. A pending handoff is not success; wait for completion or use `update-status`. Older Windows executables need a one-time assisted artifact update. macOS and Linux continue using their package or official artifact.
 
 ## Build locally
 
