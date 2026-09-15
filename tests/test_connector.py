@@ -841,6 +841,40 @@ notify = ["project-specific"]
             transcript.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
             return connector.claude_event({"session_id": "synthetic-session", "transcript_path": str(transcript)}, self.config)
 
+    def test_claude_timing_uses_consistent_milliseconds(self):
+        cases = [
+            (["2026-09-15T10:00:00.000Z", "2026-09-15T10:00:01.001Z"], 1001, 1001),
+            (["2026-09-15T10:00:00.123Z", "2026-09-15T10:00:01.124Z"], 1001, 1001),
+            (["2026-09-15T10:00:00.000Z", "2026-09-15T10:00:03.000Z",
+              "2026-09-15T10:00:02.000Z"], 3000, 3000),
+            (["2026-09-15T10:00:01.000Z", "2026-09-15T10:00:00.000Z",
+              "2026-09-15T10:00:02.000Z"], 2000, 2000),
+            (["2026-09-15T10:00:00.000Z", "2026-09-15T10:10:00.000Z"], 600000, 300000),
+            (["2026-09-15T10:00:00.000Z", "2026-09-15T10:00:00.000Z"], 0, 0),
+            (["2026-09-15T07:00:00.123456-03:00", "2026-09-15T10:00:01.124789Z"], 1001, 1001),
+        ]
+        for timestamps, duration, active in cases:
+            with self.subTest(timestamps=timestamps):
+                records = [{"type": "user", "timestamp": timestamps[0],
+                            "message": {"content": "synthetic request"}}]
+                records.extend({"type": "assistant", "timestamp": timestamp,
+                                "message": {"usage": {"input_tokens": 10, "output_tokens": 1}}}
+                               for timestamp in timestamps[1:])
+                event = self.claude_event_from_records(records)
+                self.assertEqual(event["duration_ms"], duration)
+                self.assertEqual(event["active_time_ms"], active)
+                self.assertLessEqual(event["active_time_ms"], event["duration_ms"])
+                self.assertEqual(event["tokens_input"], 10 * (len(timestamps) - 1))
+
+    def test_duration_uses_same_clock_as_active_time_without_float_truncation(self):
+        for milliseconds in range(2001):
+            start = "2026-09-15T10:00:00.000Z"
+            end = f"2026-09-15T10:00:{milliseconds // 1000:02d}.{milliseconds % 1000:03d}Z"
+            self.assertEqual(connector.iso_duration_ms(start, end), milliseconds)
+        self.assertIsNone(connector.iso_duration_ms(None, None))
+        self.assertIsNone(connector.iso_duration_ms("invalid", "invalid"))
+        self.assertEqual(connector.iso_duration_ms("2026-09-15T10:00:01Z", "2026-09-15T10:00:00Z"), 0)
+
     def test_claude_idle_compaction_is_claimed_once_without_previous_exchange_usage(self):
         records = [
             {"type": "user", "uuid": "first", "message": {"content": "first request"}},

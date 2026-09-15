@@ -26,7 +26,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-VERSION = "0.7.16"
+VERSION = "0.7.17"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 8
 TELEMETRY_V8_FIELDS = {
@@ -645,7 +645,8 @@ def timestamp_milliseconds(value) -> int | None:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return int(parsed.timestamp() * 1000)
+    delta = parsed - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return (delta.days * 86_400 + delta.seconds) * 1000 + delta.microseconds // 1000
 
 
 def observed_active_time_ms(records: list[dict], maximum_gap_ms: int = 300_000) -> int:
@@ -1233,12 +1234,13 @@ def integer(value) -> int:
 
 
 def iso_duration_ms(first: str | None, last: str | None) -> int | None:
-    try:
-        start = datetime.fromisoformat(first.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(last.replace("Z", "+00:00"))
-        return max(0, int((end - start).total_seconds() * 1000))
-    except (AttributeError, TypeError, ValueError):
+    # Use the same integer-millisecond clock as observed_active_time_ms.
+    # Truncating a floating-point timedelta can lose a millisecond (e.g. 1.001s).
+    start = timestamp_milliseconds(first)
+    end = timestamp_milliseconds(last)
+    if start is None or end is None:
         return None
+    return max(0, end - start)
 
 
 def aggregate_usage(
@@ -1618,6 +1620,14 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         **optimization,
         **configuration,
     }
+    # Transcript records may be appended out of chronological order. Duration
+    # must span the same observations used by the active-time estimate.
+    observed_times = [
+        timestamp for record in [user_record, *exchange_records]
+        if (timestamp := timestamp_milliseconds(record.get("timestamp"))) is not None
+    ]
+    if len(observed_times) >= 2:
+        event["duration_ms"] = max(observed_times) - min(observed_times)
     fingerprint = recurrence_key(user_text, config["fingerprint_key"])
     if fingerprint:
         event["recurrence_key"] = fingerprint

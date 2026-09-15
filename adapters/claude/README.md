@@ -40,6 +40,8 @@ La detección usa el marcador nativo `compact_boundary`, directo o dentro de `sy
 
 Se descartan obligatoriamente prompts, respuestas, transcripciones, identificadores de sesión y traza, argumentos de herramientas, comandos, archivos, rutas, URLs, resultados y cualquier texto libre fuera del esquema. Los nombres de herramientas se usan sólo durante la transformación local: se envían únicamente etiquetas de productos públicos aprobados y todo nombre personalizado se convierte en `other`. Los campos ausentes quedan sin dato; no se inventan ni se completan con otra llamada al modelo.
 
+La duración y el tiempo activo usan el mismo reloj entero de milisegundos. La duración abarca desde la menor hasta la mayor marca temporal observada del intercambio, incluso si los registros llegan fuera de orden; el tiempo activo limita cada pausa a cinco minutos y no puede superar esa duración.
+
 El resultado de una edición indica éxito o fallo técnico del tool result, no aceptación humana de una sugerencia. El tiempo activo es una estimación local comparable, no el contador oficial de OpenTelemetry. PragmAI no activa las opciones de Claude que incluyen prompts, detalles o contenido de herramientas, cuerpos crudos de API ni identificadores de sesión o traza.
 
 ## Optimización y compactación
