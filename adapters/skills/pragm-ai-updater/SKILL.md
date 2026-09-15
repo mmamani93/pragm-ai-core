@@ -13,13 +13,11 @@ To check the official manifest without installing anything, run the installed co
 pragmai check-update
 ```
 
-For an authorized standalone update, update `pragmai` through the official package manager or replace it with the official versioned artifact, then run:
+For an authorized Windows standalone update on 0.7.18 or later, run `pragmai update`. This authorization includes the official GitHub fallback: do not ask again when WinGet cannot find the package. The command selects the signed manifest version, tries WinGet download, falls back only when WinGet or the requested package/version is absent, verifies the GitHub SHA-256 and archive, and hands off replacement to a separate executable. The helper retains a backup, runs `repair` and `doctor`, and reports completion. A handoff message or exit code 0 alone is not success: wait for the helper result or check `pragmai update-status`; `pending` requires waiting, `failed` requires investigation. After success, ask the user to restart Claude Code.
 
-```sh
-pragmai repair
-```
+Windows 0.7.17 and earlier need a one-time bootstrap because their standalone `update` cannot download binaries. If WinGet cannot find `PragmAI.PragmAI`, use the authorized fallback from https://github.com/mmamani93/pragm-ai-core/releases: select the stable version reported by `check-update`, download `pragmai-windows-x64.zip`, verify its SHA-256 against GitHub before extraction, and run `repair` and `doctor` with the new executable. Ask for permission only if the existing user request did not authorize downloading and executing the official fallback. Do not reenroll or read the private configuration.
 
-On Windows, try WinGet first. If WinGet cannot find `PragmAI.PragmAI`, tell the user that the package is not available there and ask for explicit authorization before downloading or executing an alternative. After authorization, use only <https://github.com/mmamani93/pragm-ai-core/releases>: select the stable release version reported by `pragmai check-update`, download `pragmai-windows-x64.zip`, and verify its SHA-256 against the digest published by GitHub before extracting it. Run `repair` and `doctor` with the newly extracted `pragmai.exe`; do not run the older executable by mistake. Opening or inspecting the release page is read-only and does not itself require installation authorization.
+On macOS or Linux, update through the official package or artifact, then run `pragmai repair` and `pragmai doctor`. Native automatic binary download is currently Windows-only.
 
 To leave the A/B experiment and keep optimization enabled all the time, run:
 
@@ -47,4 +45,4 @@ A package-manager executable and the private executable invoked by managed hooks
 
 After updating the official executable, run `pragmai repair`. It compares and synchronizes the private copy automatically. Do not run `setup`, reenroll the employee, or change company identity, authorized email, credential, clients or optimization mode.
 
-An update is complete only when `pragmai doctor` confirms the configured version, private-copy integrity, package/hook synchronization and every client check. If the standalone `update` command directs the user back to the official package or artifact, continue with the authorized Windows fallback above when applicable; do not treat that message as successful synchronization.
+An update is complete only when `pragmai doctor` confirms the configured version, private-copy integrity, package/hook synchronization and every client check. For Windows versions before 0.7.18, use the authorized one-time bootstrap above when `update` directs the user to the package or artifact; this message is not a completed update.

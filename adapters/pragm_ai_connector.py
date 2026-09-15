@@ -8,6 +8,7 @@ import base64
 import difflib
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -18,15 +19,17 @@ import ssl
 import subprocess
 import sys
 import time
+import tempfile
+import zipfile
 import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler, HTTPSHandler
 
-VERSION = "0.7.17"
+VERSION = "0.7.18"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 8
 TELEMETRY_V8_FIELDS = {
@@ -235,7 +238,20 @@ def trusted_tls_context() -> ssl.SSLContext:
     return ssl.create_default_context()
 
 
+class GitHubReleaseRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, new_url):
+        parsed = urlparse(new_url)
+        if (parsed.scheme != "https" or parsed.hostname not in {
+            "github.com", "api.github.com", "release-assets.githubusercontent.com"
+        } or parsed.username or parsed.password or parsed.port not in (None, 443)):
+            raise RuntimeError("The release download redirected to an untrusted destination.")
+        return super().redirect_request(request, fp, code, message, headers, new_url)
+
+
 def open_https(request: Request, timeout: int):
+    if urlparse(request.full_url).hostname in {"api.github.com", "github.com"}:
+        opener = build_opener(HTTPSHandler(context=trusted_tls_context()), GitHubReleaseRedirect())
+        return opener.open(request, timeout=timeout)
     return urlopen(request, timeout=timeout, context=trusted_tls_context())
 
 
@@ -263,13 +279,11 @@ To check the official manifest without installing anything, run the installed co
 pragmai check-update
 ```
 
-For an authorized standalone update, update `pragmai` through the official package manager or replace it with the official versioned artifact, then run:
+For an authorized Windows standalone update on 0.7.18 or later, run `pragmai update`. This authorization includes the official GitHub fallback: do not ask again when WinGet cannot find the package. The command selects the signed manifest version, tries WinGet download, falls back only when WinGet or the requested package/version is absent, verifies the GitHub SHA-256 and archive, and hands off replacement to a separate executable. The helper retains a backup, runs `repair` and `doctor`, and reports completion. A handoff message or exit code 0 alone is not success: wait for the helper result or check `pragmai update-status`; `pending` requires waiting, `failed` requires investigation. After success, ask the user to restart Claude Code.
 
-```sh
-pragmai repair
-```
+Windows 0.7.17 and earlier need a one-time bootstrap because their standalone `update` cannot download binaries. If WinGet cannot find `PragmAI.PragmAI`, use the authorized fallback from https://github.com/mmamani93/pragm-ai-core/releases: select the stable version reported by `check-update`, download `pragmai-windows-x64.zip`, verify its SHA-256 against GitHub before extraction, and run `repair` and `doctor` with the new executable. Ask for permission only if the existing user request did not authorize downloading and executing the official fallback. Do not reenroll or read the private configuration.
 
-On Windows, try WinGet first. If WinGet cannot find `PragmAI.PragmAI`, tell the user that the package is not available there and ask for explicit authorization before downloading or executing an alternative. After authorization, use only <https://github.com/mmamani93/pragm-ai-core/releases>: select the stable release version reported by `pragmai check-update`, download `pragmai-windows-x64.zip`, and verify its SHA-256 against the digest published by GitHub before extracting it. Run `repair` and `doctor` with the newly extracted `pragmai.exe`; do not run the older executable by mistake. Opening or inspecting the release page is read-only and does not itself require installation authorization.
+On macOS or Linux, update through the official package or artifact, then run `pragmai repair` and `pragmai doctor`. Native automatic binary download is currently Windows-only.
 
 To leave the A/B experiment and keep optimization enabled all the time, run:
 
@@ -297,7 +311,7 @@ A package-manager executable and the private executable invoked by managed hooks
 
 After updating the official executable, run `pragmai repair`. It compares and synchronizes the private copy automatically. Do not run `setup`, reenroll the employee, or change company identity, authorized email, credential, clients or optimization mode.
 
-An update is complete only when `pragmai doctor` confirms the configured version, private-copy integrity, package/hook synchronization and every client check. If the standalone `update` command directs the user back to the official package or artifact, continue with the authorized Windows fallback above when applicable; do not treat that message as successful synchronization.
+An update is complete only when `pragmai doctor` confirms the configured version, private-copy integrity, package/hook synchronization and every client check. For Windows versions before 0.7.18, use the authorized one-time bootstrap above when `update` directs the user to the package or artifact; this message is not a completed update.
 '''
 
 def install_privacy_notice(mode: str) -> str:
@@ -2301,7 +2315,9 @@ def check_update() -> int:
     available = update_availability()
     if available:
         print(f"PragmAI update available: {VERSION} -> {available}.")
-        if STANDALONE:
+        if STANDALONE and os.name == "nt":
+            print("Run: pragmai update (includes repair and doctor)")
+        elif STANDALONE:
             print("Update with the official package or artifact, then run: pragmai repair")
         else:
             print("Ask Codex to use pragm-ai-updater or run this connector with: update")
@@ -2575,7 +2591,165 @@ def uninstall() -> int:
     return 0
 
 
+GITHUB_RELEASE_API = "https://api.github.com/repos/mmamani93/pragm-ai-core/releases/tags/v"
+GITHUB_RELEASE_BASE = "https://github.com/mmamani93/pragm-ai-core/releases/download/v"
+UPDATE_MAX_BYTES = 150_000_000
+UPDATE_STATE_FILE = INSTALL_DIR / "update-state.json"
+
+
+def github_release_asset(version: str) -> dict:
+    version_tuple(version)
+    release = json.loads(fetch_bytes(GITHUB_RELEASE_API + version, 1_000_000))
+    if release.get("tag_name") != "v" + version or release.get("draft") or release.get("prerelease"):
+        raise RuntimeError("The GitHub release is not the requested stable version.")
+    assets = [a for a in release.get("assets", []) if a.get("name") == "pragmai-windows-x64.zip"]
+    if len(assets) != 1:
+        raise RuntimeError("The official Windows release is unavailable.")
+    asset = assets[0]
+    expected_url = GITHUB_RELEASE_BASE + version + "/pragmai-windows-x64.zip"
+    if asset.get("browser_download_url") != expected_url or not re.fullmatch(r"sha256:[a-f0-9]{64}", asset.get("digest", "")):
+        raise RuntimeError("The GitHub release checksum or download URL is invalid.")
+    if not isinstance(asset.get("size"), int) or not 0 < asset["size"] <= UPDATE_MAX_BYTES:
+        raise RuntimeError("The official Windows release has an invalid size.")
+    return asset
+
+
+def download_windows_archive(version: str, directory: Path, asset: dict) -> bytes:
+    winget = shutil.which("winget")
+    archive = None
+    if winget:
+        result = subprocess.run([
+            winget, "download", "--id", "PragmAI.PragmAI", "--exact",
+            "--version", version, "--source", "winget", "--architecture", "x64",
+            "--download-directory", str(directory), "--skip-dependencies",
+            "--accept-source-agreements", "--accept-package-agreements", "--disable-interactivity",
+        ], capture_output=True, timeout=180, check=False)
+        code = result.returncode & 0xFFFFFFFF
+        if code == 0:
+            candidates = list(directory.rglob("*.zip"))
+            if len(candidates) != 1 or candidates[0].stat().st_size > UPDATE_MAX_BYTES:
+                raise RuntimeError("WinGet did not return the expected release archive.")
+            archive = candidates[0].read_bytes()
+        elif code not in {0x8A150014, 0x8A150017}:
+            # Do not bypass policy, hash, certificate, cancellation or access failures.
+            raise RuntimeError(f"WinGet failed (0x{code:08X}); update stopped.")
+    if archive is None:
+        print("PragmAI is unavailable in WinGet; downloading the official GitHub release.")
+        archive = fetch_bytes(asset["browser_download_url"], UPDATE_MAX_BYTES, timeout=120)
+    if len(archive) != asset["size"] or not hmac.compare_digest(
+        hashlib.sha256(archive).hexdigest(), asset["digest"][7:]
+    ):
+        raise RuntimeError("The Windows download did not match the GitHub SHA-256 checksum.")
+    return archive
+
+
+def extract_windows_executable(archive: bytes, directory: Path) -> Path:
+    # Never extract user-controlled paths, links, additional files or zip bombs.
+    with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
+        files = zipped.infolist()
+        if len(files) != 1 or files[0].filename != "pragmai.exe" or not 0 < files[0].file_size <= UPDATE_MAX_BYTES:
+            raise RuntimeError("The Windows release archive has an unexpected layout.")
+        if (files[0].external_attr >> 16) & 0o170000 == 0o120000:
+            raise RuntimeError("The Windows release archive contains a symbolic link.")
+        executable = zipped.read(files[0])
+    if not executable.startswith(b"MZ"):
+        raise RuntimeError("The release does not contain a Windows executable.")
+    target = directory / "pragmai.exe"
+    atomic_write_bytes(target, executable, 0o700)
+    return target
+
+
+def record_update_state(status: str, version: str) -> None:
+    # Installation state only: no event data, identity, secrets or paths.
+    atomic_write(UPDATE_STATE_FILE, json.dumps({"status": status, "version": version}) + "\n")
+
+
+def complete_windows_update(target: Path, expected_hash: str) -> int:
+    source = current_artifact_path()
+    content = source.read_bytes()
+    if not re.fullmatch(r"[a-f0-9]{64}", expected_hash) or not hmac.compare_digest(hashlib.sha256(content).hexdigest(), expected_hash):
+        raise RuntimeError("The staged executable failed integrity verification.")
+    target = target.resolve()
+    if target == source or target.name.lower() != "pragmai.exe" or not target.is_file():
+        raise RuntimeError("The update destination is invalid.")
+    try:
+        backup(target)
+        # The old executable/bootloader can remain locked briefly after handoff.
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                atomic_write_bytes(target, content, 0o700)
+                break
+            except PermissionError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("The old executable is still in use. Close other PragmAI processes and retry.")
+                time.sleep(0.5)
+        environment = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
+        for command in ("repair", "doctor"):
+            result = subprocess.run([str(target), command], env=environment, timeout=120, check=False)
+            if result.returncode:
+                raise RuntimeError(f"PragmAI update failed during {command}; the previous executable backup was retained.")
+        record_update_state("complete", VERSION)
+        print(f"PragmAI updated to {VERSION}; repair and doctor passed. Restart Claude Code.", flush=True)
+        return 0
+    except Exception:
+        record_update_state("failed", VERSION)
+        raise
+
+
+def windows_update() -> int:
+    load_config()  # Require an existing installation; never reenroll or change identity.
+    manifest = fetch_update_manifest()
+    version = manifest["version"]
+    if version_tuple(version) < version_tuple(VERSION):
+        raise RuntimeError("The update manifest would downgrade this connector.")
+    if version == VERSION:
+        repair()
+        return doctor()
+    asset = github_release_asset(version)
+    directory = Path(tempfile.mkdtemp(prefix="pragmai-update-"))
+    handed_off = False
+    try:
+        archive = download_windows_archive(version, directory, asset)
+        executable = extract_windows_executable(archive, directory)
+        environment = {**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"}
+        probe = subprocess.run([str(executable), "--version"], env=environment,
+                               capture_output=True, text=True, timeout=30, check=False)
+        if probe.returncode or probe.stdout.strip() != version:
+            raise RuntimeError("The downloaded executable has an unexpected version.")
+        record_update_state("pending", version)
+        # This child inherits console/pipe output but owns a fresh PyInstaller runtime.
+        # Returning lets Windows release the original image before replacement.
+        subprocess.Popen([str(executable), "_complete-update", "--target", str(current_artifact_path()),
+                          "--sha256", hashlib.sha256(executable.read_bytes()).hexdigest()],
+                         env=environment)
+        handed_off = True
+        print("Update started; the helper will run repair and doctor. Completion is reported below or by pragmai update-status.", flush=True)
+        return 0
+    except Exception:
+        record_update_state("failed", version)
+        raise
+    finally:
+        if not handed_off:
+            shutil.rmtree(directory, ignore_errors=True)
+
+
+def update_status() -> int:
+    if not UPDATE_STATE_FILE.is_file():
+        print("No automatic update has been started.")
+        return 1
+    state = json.loads(UPDATE_STATE_FILE.read_text(encoding="utf-8"))
+    status = state.get("status")
+    version = state.get("version")
+    if status not in {"pending", "complete", "failed"} or not re.fullmatch(r"\d+\.\d+\.\d+", version or ""):
+        raise RuntimeError("The update state is invalid.")
+    print(f"PragmAI update {version}: {status}.")
+    return 0 if status == "complete" else 1
+
+
 def update() -> int:
+    if STANDALONE and os.name == "nt":
+        return windows_update()
     if STANDALONE:
         raise RuntimeError(
             "Update with the official package or artifact, then run `pragmai repair` to synchronize hooks."
@@ -2705,6 +2879,10 @@ def parser() -> argparse.ArgumentParser:
     notify.add_argument("payload")
     commands.add_parser("claude-stop")
     commands.add_parser("update")
+    commands.add_parser("update-status")
+    complete = commands.add_parser("_complete-update", help=argparse.SUPPRESS)
+    complete.add_argument("--target", required=True)
+    complete.add_argument("--sha256", required=True)
     commands.add_parser("check-update")
     commands.add_parser("doctor")
     commands.add_parser("uninstall")
@@ -2723,6 +2901,12 @@ def main() -> int:
             return codex_notify(args.payload)
         if args.command == "claude-stop":
             return claude_stop()
+        if args.command == "_complete-update":
+            if not STANDALONE or os.name != "nt":
+                raise RuntimeError("This command requires the Windows standalone updater.")
+            return complete_windows_update(Path(args.target), args.sha256)
+        if args.command == "update-status":
+            return update_status()
         if args.command == "update":
             return update()
         if args.command == "check-update":

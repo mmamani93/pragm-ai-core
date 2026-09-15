@@ -45,6 +45,9 @@ jobs:
         run: python scripts/build_standalone.py --clean
       - name: Verify executable starts
         run: python -c "import pathlib, subprocess, sys; exe = pathlib.Path('dist/standalone') / ('pragmai.exe' if sys.platform == 'win32' else 'pragmai'); subprocess.run([str(exe.resolve()), '--version'], check=True)"
+      - name: Verify Windows update with a locked executable
+        if: runner.os == 'Windows'
+        run: python scripts/test_windows_update.py
       - name: Package Unix executable
         if: runner.os != 'Windows'
         shell: bash
