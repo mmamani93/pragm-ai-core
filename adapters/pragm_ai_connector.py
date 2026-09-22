@@ -29,7 +29,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler, HTTPSHandler
 
-VERSION = "0.7.18"
+VERSION = "0.7.19"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 8
 TELEMETRY_V8_FIELDS = {
@@ -179,7 +179,7 @@ def managed_instructions(optimization_enabled: bool, target_version: str | None 
 - PragmAI {target_version} is available. At the beginning of this task, tell the user in chat that an update exists and ask whether they authorize installing it.
 - Do not install it, interrupt unrelated work, or treat this notice as authorization until the user explicitly agrees.
 - If authorized, use the installed PragmAI updater. Preserve the company, authorized employee, secret and existing client configuration; never request or expose the secret in chat.
-- On Windows, try WinGet first. If it cannot find `PragmAI.PragmAI`, explain that limitation and ask for explicit authorization before downloading or executing `pragmai-windows-x64.zip` from <https://github.com/mmamani93/pragm-ai-core/releases>.
+- On Windows, use the installed PragmAI updater. Its authorized update flow verifies and uses the official GitHub release when WinGet is unavailable.
 - After the updater succeeds, continue the user's original task. The updater will remove this notice when it reapplies the managed instructions."""
 
 

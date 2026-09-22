@@ -1149,7 +1149,7 @@ notify = ["project-specific"]
         skill_path = MODULE_PATH.parent / "skills" / "pragm-ai-updater" / "SKILL.md"
         self.assertEqual(connector.EMBEDDED_UPDATER_SKILL, skill_path.read_bytes())
         skill = skill_path.read_text(encoding="utf-8")
-        self.assertIn("If WinGet cannot find `PragmAI.PragmAI`", skill)
+        self.assertIn("official GitHub fallback", skill)
         self.assertIn("https://github.com/mmamani93/pragm-ai-core/releases", skill)
         self.assertIn("verify its SHA-256", skill)
         with tempfile.TemporaryDirectory() as directory:
@@ -1267,8 +1267,8 @@ notify = ["project-specific"]
             for text in (codex, claude):
                 self.assertIn("0.5.4 is available", text)
                 self.assertIn("ask whether they authorize", text)
-                self.assertIn("If it cannot find `PragmAI.PragmAI`", text)
-                self.assertIn("pragmai-windows-x64.zip", text)
+                self.assertIn("use the installed PragmAI updater", text)
+                self.assertIn("official GitHub release", text)
             self.assertIn("# Existing Codex rule", codex)
             self.assertIn("# Existing Claude rule", claude)
 
