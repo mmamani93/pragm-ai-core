@@ -22,7 +22,7 @@ On macOS, install the current release from the public Homebrew tap:
 brew install mmamani93/tap/pragmai
 ```
 
-Windows and Linux artifacts are available from the versioned GitHub Release. WinGet remains unavailable until Microsoft accepts the catalog submission; do not present it as an active installation method before then.
+Windows and Linux artifacts are available from the versioned GitHub Release. Windows releases include a per-user `pragmai-windows-x64-setup.exe` installer and retain the portable ZIP as a fallback. WinGet remains unavailable until Microsoft accepts the catalog submission; do not present it as an active installation method before then.
 
 After installation, the public interface is:
 
@@ -53,6 +53,7 @@ python scripts/build_standalone.py --clean
 ```
 
 PyInstaller builds separately on each operating system. GitHub Actions produces macOS arm64, macOS x64, Windows x64, and Linux x64 artifacts from the same tagged source.
+The Windows job then uses NSIS 3.12.0 to build and exercise the installer and uninstaller without administrative privileges.
 
 ## Repository boundary
 
