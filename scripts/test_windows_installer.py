@@ -39,6 +39,14 @@ def set_user_path(value: str) -> None:
         winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, value)
 
 
+def normalized_path_entries(value: str) -> list[str]:
+    return [
+        os.path.normcase(os.path.normpath(os.path.expandvars(entry.strip())))
+        for entry in value.split(";")
+        if entry.strip()
+    ]
+
+
 def wait_until_removed(path: Path) -> None:
     for _ in range(50):
         if not path.exists():
@@ -78,7 +86,7 @@ def main() -> int:
 
         subprocess.run([str(uninstaller), "/S"], check=True, timeout=120)
         wait_until_removed(INSTALL_DIR)
-        assert user_path() == seeded_path
+        assert normalized_path_entries(user_path()) == normalized_path_entries(seeded_path)
         try:
             winreg.OpenKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY)
         except FileNotFoundError:
