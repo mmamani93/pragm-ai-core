@@ -4,7 +4,7 @@ Claude Code usa el conector compartido `adapters/pragm_ai_connector.py`. La inst
 
 Esta integración cubre Claude Code, incluso cuando se ejecuta dentro de Warp. No cubre claude.ai web.
 
-## Ejecuciones automatizadas (telemetría v9, pendiente de release)
+## Ejecuciones automatizadas (telemetría v9 disponible desde 0.7.20)
 
 Para un proceso local que inicia Claude Code, el programador puede proporcionar estas variables de entorno al proceso y sus hooks:
 
