@@ -29,9 +29,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler, HTTPSHandler
 
-VERSION = "0.7.19"
+VERSION = "0.7.20"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
-TELEMETRY_VERSION = 8
+TELEMETRY_VERSION = 9
+TELEMETRY_V9_FIELDS = {"execution_origin", "automation_slot", "automation_run_key"}
 TELEMETRY_V8_FIELDS = {
     "active_time_ms",
     "active_time_basis",
@@ -48,6 +49,8 @@ TELEMETRY_V8_FIELDS = {
 EXPERIMENT_ID = "optimization_3day_crossover_v2"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
 OPTIMIZATION_MODES = {"experiment", "always_on"}
+CLAUDE_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
+AUTOMATION_ORIGINS = {"scheduled", "api_trigger", "other_automation"}
 DEFAULT_ENDPOINT = "https://m-pragm-ai.vercel.app/api/events"
 DEFAULT_UPDATE_MANIFEST = "https://m-pragm-ai.vercel.app/pragm-ai-update.json"
 UPDATE_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
@@ -153,6 +156,7 @@ PRAGMAI_OPTIMIZATION_RULES = """### PragmAI optimization instructions
 
 - Keep responses concise unless the user asks for more detail.
 - Accuracy takes priority over token savings. Verify consequential or unstable claims with authoritative sources when necessary.
+- Once task requirements are met and sufficient evidence supports the result, finish the task without expanding research or repeating checks unless new changes, contradictions, failures, or unresolved concerns justify further verification, or the user requests an exhaustive review. Complete all required checks before stopping.
 - Perform deterministic extraction, filtering, sorting, calculations, conversions, reconciliation, deduplication, aggregation and bulk validation locally and in bounded batches when this preserves accuracy.
 - Read large files or datasets once per version and reuse compact deterministic results while inputs remain unchanged.
 - Prefer existing authorized structured integrations, APIs, connectors, or specialized deterministic file tools over browser or UI automation when they can complete the task reliably. Use browser or UI automation only as a justified fallback when no suitable structured interface or local tool is available.
@@ -441,6 +445,21 @@ def private_digest(prefix: str, value: str, key_hex: str, length: int = 32) -> s
 def recurrence_key(text: str, key_hex: str) -> str | None:
     shape = normalize_task_shape(text)
     return private_digest("rt_", shape, key_hex) if shape else None
+
+
+def automation_metadata(key_hex: str, environment: dict | None = None) -> dict:
+    environment = environment if environment is not None else os.environ
+    origin = environment.get("PRAGMAI_EXECUTION_ORIGIN")
+    if origin not in AUTOMATION_ORIGINS:
+        return {}
+    metadata = {"execution_origin": origin}
+    run_id = environment.get("PRAGMAI_AUTOMATION_RUN_ID")
+    if isinstance(run_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", run_id):
+        metadata["automation_run_key"] = private_digest("ar_", run_id, key_hex)
+    slot = environment.get("PRAGMAI_AUTOMATION_SLOT")
+    if isinstance(slot, str) and re.fullmatch(r"[1-9][0-9]{0,3}", slot):
+        metadata["automation_slot"] = int(slot)
+    return metadata
 
 
 def experiment_assignment(config: dict, moment: datetime | None = None) -> dict:
@@ -1550,6 +1569,7 @@ def claude_event(payload: dict, config: dict) -> dict | None:
     post_tool_calls = continuation_calls = 0
     tool_since_usage = previous_was_usage = False
     model = "unknown"
+    usage_models = set()
     first_timestamp = user_record.get("timestamp")
     last_timestamp = first_timestamp
     exchange_records = records[last_user + 1:]
@@ -1566,6 +1586,7 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         usage = message.get("usage") or {}
         if any(integer(usage.get(key)) for key in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")):
             usages.append(usage)
+            usage_models.add(model)
             if tool_since_usage:
                 post_tool_calls += 1
             elif previous_was_usage:
@@ -1579,6 +1600,11 @@ def claude_event(payload: dict, config: dict) -> dict | None:
                 previous_was_usage = False
     if not usages:
         return None
+    if len(usage_models) != 1:
+        # A single catalog price cannot represent a mixed-model exchange.
+        model = "unknown"
+    else:
+        model = next(iter(usage_models))
     session_id = str(payload.get("session_id", "session"))
     exchange_marker = str(user_record.get("uuid") or first_timestamp or last_user)
     # Claim a boundary in the first exchange with a subsequent observed model call.
@@ -1604,6 +1630,10 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         compaction_threshold=compaction_threshold,
     )
     extended_activity = claude_extended_activity(exchange_records)
+    effort = payload.get("effort")
+    effort_level = effort.get("level") if isinstance(effort, dict) else None
+    if effort_level not in CLAUDE_EFFORT_LEVELS:
+        effort_level = "unknown"
     if not compaction_threshold:
         usage_metrics["calls_over_compaction_threshold"] = None
     event = {
@@ -1613,7 +1643,7 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         "employee_id": config["employee_id"],
         "client": "claude-code",
         "model": model[:100],
-        "reasoning_effort": "unknown",
+        "reasoning_effort": effort_level,
         **classify(user_text, list(category_counts)),
         "duration_ms": iso_duration_ms(first_timestamp, last_timestamp),
         "active_time_ms": observed_active_time_ms([user_record, *exchange_records]),
@@ -1631,6 +1661,7 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         "billing_mode": config.get("billing_mode", "subscription"),
         "connector_version": VERSION,
         "telemetry_version": TELEMETRY_VERSION,
+        **automation_metadata(config["fingerprint_key"]),
         **optimization,
         **configuration,
     }
@@ -1666,8 +1697,14 @@ def post_event(event: dict, config: dict) -> None:
 
 
 def telemetry_v7_fallback(event: dict) -> dict:
-    fallback = {key: value for key, value in event.items() if key not in TELEMETRY_V8_FIELDS}
+    fallback = {key: value for key, value in event.items() if key not in TELEMETRY_V8_FIELDS | TELEMETRY_V9_FIELDS}
     fallback["telemetry_version"] = 7
+    return fallback
+
+
+def telemetry_v8_fallback(event: dict) -> dict:
+    fallback = {key: value for key, value in event.items() if key not in TELEMETRY_V9_FIELDS}
+    fallback["telemetry_version"] = 8
     return fallback
 
 
@@ -1677,12 +1714,18 @@ def send_event(event: dict, config: dict) -> None:
     except HTTPError as error:
         if error.code in (400, 422) and event.get("telemetry_version") == TELEMETRY_VERSION:
             try:
-                post_event(telemetry_v7_fallback(event), config)
+                post_event(telemetry_v8_fallback(event), config)
                 return
             except HTTPError as fallback_error:
-                raise RuntimeError(
-                    f"PragmAI rejected the event ({fallback_error.code})."
-                ) from fallback_error
+                if fallback_error.code in (400, 422):
+                    try:
+                        post_event(telemetry_v7_fallback(event), config)
+                        return
+                    except HTTPError as final_error:
+                        raise RuntimeError(
+                            f"PragmAI rejected the event ({final_error.code})."
+                        ) from final_error
+                raise RuntimeError(f"PragmAI rejected the event ({fallback_error.code}).") from fallback_error
         raise RuntimeError(f"PragmAI rejected the event ({error.code}).") from error
 
 

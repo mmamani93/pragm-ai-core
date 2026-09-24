@@ -61,6 +61,7 @@ El siguiente bloque se instala únicamente en ON. Se integra con las instruccion
 
 - Keep final user-facing responses concise by default: lead with the conclusion and use at most 150 words or five bullet points unless more detail is necessary for accuracy, safety, task completion, or the user asks for it. Do not repeat the request or narrate routine steps. Keep complete code, exact errors, warnings, and necessary evidence. Offer additional useful detail in one undeveloped line.
 - Accuracy takes priority over token savings. Verify consequential or unstable claims with authoritative sources.
+- Once task requirements are met and sufficient evidence supports the result, finish the task without expanding research or repeating checks unless new changes, contradictions, failures, or unresolved concerns justify further verification, or the user requests an exhaustive review. Complete all required checks before stopping.
 - Perform deterministic extraction, filtering, sorting, calculations, conversions, reconciliation, deduplication, aggregation and bulk validation locally and in bounded batches when this preserves accuracy.
 - Read large files or datasets once per version and reuse compact deterministic results while inputs remain unchanged.
 - Prefer existing authorized structured integrations, APIs, connectors, or specialized deterministic file tools over browser or UI automation when they can complete the task reliably. Use browser or UI automation only as a justified fallback when no suitable structured interface or local tool is available.
@@ -109,6 +110,8 @@ El hook `notify` localiza el intercambio terminado en la telemetría que mantien
 
 El hook `Stop` agrega las llamadas del último intercambio y reduce las herramientas a familias cerradas. Detecta marcadores nativos de compactación dentro del intercambio o entre mensajes, atribuyéndolos al primer intercambio con consumo posterior sin duplicarlos. Una compactación sin llamadas posteriores queda pendiente hasta el siguiente intercambio. Si sólo queda el resumen sintético, captura la continuación sin clasificar ese resumen ni generar recurrencia. Sólo informa el tamaño compactado cuando el cliente lo expone; la entrada posterior es una métrica separada. Esta integración cubre Claude Code, no claude.ai web.
 
+En telemetría v9 preparada para el próximo release, un programador local puede declarar `PRAGMAI_EXECUTION_ORIGIN` (`scheduled`, `api_trigger` u `other_automation`) y un número `PRAGMAI_AUTOMATION_SLOT` de 1 a 9999, único por bot dentro de la empresa. El conector transmite sólo ese número cerrado, sin nombre. `PRAGMAI_AUTOMATION_RUN_ID` es opcional y permite contar corridas distintas mediante otra huella HMAC; si falta, el costo medio por corrida queda sin dato. Los valores originales no se transmiten ni se guardan. Ninguna ejecución se clasifica como automatizada por horario o por el texto del prompt. El hook de Claude informa el nivel de esfuerzo efectivo al terminar el intercambio cuando lo expone; ese valor no demuestra que todas las llamadas internas hayan usado el mismo nivel.
+
 ### Transformaciones comunes
 
 El texto de la tarea puede usarse transitoriamente en memoria para asignar `work_domain`, `task_type` y `workflow_pattern` dentro de listas cerradas, y para producir una huella HMAC de la forma normalizada. Ni el texto normalizado ni la clave HMAC salen del equipo.
@@ -139,6 +142,7 @@ Sólo cuando el cliente las expone:
 - identidad experimental seudónima sólo en `experiment`;
 - categorías cerradas de trabajo y recurrencia privada;
 - reproducción y sensibilidad de compactación cuando la versión de telemetría las soporta.
+- origen automatizado declarado, número de bot y huella HMAC de corrida sólo cuando el programador las proporciona en Claude Code local.
 
 No se inventan campos ausentes. Los promedios, totales, costos, créditos y recurrencia se derivan centralmente cuando pueden calcularse de datos base. La API acepta algunos campos heredados para compatibilidad, pero los valida y descarta antes de guardar si son redundantes.
 

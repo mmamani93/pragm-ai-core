@@ -1,6 +1,6 @@
 # PragmAI Core
 
-PragmAI Core is the auditable local component of PragmAI. It installs the Codex and Claude Code hooks, converts locally available technical metadata into a closed telemetry schema, removes content, and sends one aggregate event per human exchange.
+PragmAI Core is the auditable local component of PragmAI. It installs the Codex and Claude Code hooks, converts locally available technical metadata into a closed telemetry schema, removes content, and sends one aggregate event per exchange with measurable usage.
 
 This repository exists so employees, customers, and auditors can verify exactly what leaves a workstation. It does not contain the PragmAI backend, dashboard, credentials, metric evaluation, business interpretation, recommendations, or the logic used to decide possible improvements.
 
@@ -10,7 +10,7 @@ PragmAI Core is not a substitute for professional, security, compliance, legal, 
 
 PragmAI Core may send an employee-authorized email plus technical counters, closed categories, and approved public model/plugin/skill labels. It never sends prompts, responses, transcripts, commands, arguments, tool output, file names, paths, URLs, session identifiers, arbitrary tool names, or custom plugin/skill names. Unknown names are emitted only as `other`.
 
-Codex telemetry v5 can emit a closed numeric counterfactual for the current exchange. Telemetry v6 adds a deterministic sensitivity grid at the current compaction threshold, ±25,000 and ±50,000 tokens, plus the original limit. Telemetry v7 adds aggregate applied-code line counters and completed plugin calls. Telemetry v8 adds approved public labels for plugins and skills plus Claude Code active-time, edit-result, commit, pull-request, and subagent counters. All source records are processed transiently; only aggregate counters and closed labels leave the workstation.
+Codex telemetry v5 can emit a closed numeric counterfactual for the current exchange. Telemetry v6 adds a deterministic sensitivity grid at the current compaction threshold, ±25,000 and ±50,000 tokens, plus the original limit. Telemetry v7 adds aggregate applied-code line counters and completed plugin calls. Telemetry v8 adds approved public labels for plugins and skills plus Claude Code active-time, edit-result, commit, pull-request, and subagent counters. Telemetry v9 can add a declared automation origin, a company-assigned numeric bot slot, and an installation-keyed HMAC of a scheduler run marker. No bot name or raw run identifier is sent. All source records are processed transiently; only aggregate counters and closed labels leave the workstation.
 
 See [the telemetry reference](docs/TELEMETRY.md) and [a synthetic complete event](examples/telemetry-event.json).
 

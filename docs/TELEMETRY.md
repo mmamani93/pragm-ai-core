@@ -1,6 +1,6 @@
 # PragmAI telemetry reference
 
-PragmAI emits one aggregate event after a human exchange. The connector builds the event transiently and sends it directly; it does not create a local analytics history, CSV, retry queue, or transcript copy.
+PragmAI emits one aggregate event after an exchange with measurable usage. The connector builds the event transiently and sends it directly; it does not create a local analytics history, CSV, retry queue, or transcript copy.
 
 The canonical synthetic example is [`examples/telemetry-event.json`](../examples/telemetry-event.json). Its values are invented and contain no customer activity.
 
@@ -15,6 +15,10 @@ The canonical synthetic example is [`examples/telemetry-event.json`](../examples
 | `client` | Closed client name, currently Codex or Claude Code. |
 | `connector_version` | Local connector version. |
 | `telemetry_version` | Event schema version. |
+
+## Explicit automation attribution
+
+Telemetry v9 can include `execution_origin` from the closed set `scheduled`, `api_trigger`, or `other_automation`; `automation_slot`, an operator-assigned number from 1 to 9999 that must be unique for each bot within a company; and `automation_run_key`, an installation-keyed HMAC of an explicit scheduler run marker. The connector never infers automation from a time of day, prompt, or Claude session identifier. Missing markers remain absent, and neither bot names nor raw run markers are transmitted. This currently applies to local Claude Code processes that execute the installed hook.
 
 ## Model and usage counters
 

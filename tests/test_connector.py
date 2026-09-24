@@ -112,7 +112,7 @@ class ConnectorTests(unittest.TestCase):
             self.assertIs(connector.open_https(request, 12), response)
         opened.assert_called_once_with(request, timeout=12, context=sentinel)
 
-    def test_event_delivery_falls_back_to_v7_only_for_an_old_schema(self):
+    def test_event_delivery_falls_back_to_v8_and_v7_for_old_schemas(self):
         delivery_config = {
             **self.config,
             "endpoint": connector.DEFAULT_ENDPOINT,
@@ -124,8 +124,11 @@ class ConnectorTests(unittest.TestCase):
         accepted = mock.MagicMock()
         accepted.__enter__.return_value.status = 202
         event = {
-            "telemetry_version": 8,
+            "telemetry_version": 9,
             "model_calls": 1,
+            "execution_origin": "scheduled",
+            "automation_key": "bt_0123456789abcdef0123456789abcdef",
+            "automation_run_key": "ar_0123456789abcdef0123456789abcdef",
             "plugin_calls": 1,
             "plugin_name_counts": {"supabase": 1},
             "skill_calls": 1,
@@ -133,18 +136,23 @@ class ConnectorTests(unittest.TestCase):
             "active_time_ms": 1000,
             "active_time_basis": "transcript_intervals_capped_5m_v1",
         }
-        with mock.patch.object(
-            connector, "open_https", side_effect=[old_schema, accepted],
-        ) as opened:
+        with mock.patch.object(connector, "open_https", side_effect=[old_schema, accepted]) as opened:
             connector.send_event(event, delivery_config)
 
         first = json.loads(opened.call_args_list[0].args[0].data)
         second = json.loads(opened.call_args_list[1].args[0].data)
-        self.assertEqual(first["telemetry_version"], 8)
-        self.assertEqual(second["telemetry_version"], 7)
+        self.assertEqual(first["telemetry_version"], 9)
+        self.assertEqual(second["telemetry_version"], 8)
         self.assertEqual(second["plugin_calls"], 1)
-        for field in connector.TELEMETRY_V8_FIELDS:
+        for field in connector.TELEMETRY_V9_FIELDS:
             self.assertNotIn(field, second)
+
+        with mock.patch.object(connector, "open_https", side_effect=[old_schema, old_schema, accepted]) as opened:
+            connector.send_event(event, delivery_config)
+        third = json.loads(opened.call_args_list[2].args[0].data)
+        self.assertEqual(third["telemetry_version"], 7)
+        for field in connector.TELEMETRY_V8_FIELDS | connector.TELEMETRY_V9_FIELDS:
+            self.assertNotIn(field, third)
 
     def test_event_delivery_does_not_retry_authentication_failures(self):
         delivery_config = {
@@ -650,7 +658,7 @@ notify = ["project-specific"]
         self.assertEqual(event["config_profile"], "smart_100k")
         self.assertEqual(event["compaction_threshold_tokens"], 127_000)
         self.assertEqual(event["compaction_scope"], "body_after_prefix")
-        self.assertEqual(event["telemetry_version"], 8)
+        self.assertEqual(event["telemetry_version"], 9)
         self.assertEqual(event["experiment_id"], connector.EXPERIMENT_ID)
         self.assertEqual(event["experiment_unit_id"], "eu_" + "aa" * 16)
         self.assertTrue(event["optimization_enabled"])
@@ -802,9 +810,10 @@ notify = ["project-specific"]
                 {"type": "assistant", "timestamp": "2026-08-24T13:00:03Z", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 120, "cache_read_input_tokens": 80, "output_tokens": 30}, "content": [{"type": "text", "text": "private answer"}]}},
             ]
             transcript.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
-            event = connector.claude_event({"session_id": "session-secret", "transcript_path": str(transcript)}, self.config)
+            event = connector.claude_event({"session_id": "session-secret", "transcript_path": str(transcript), "effort": {"level": "high"}}, self.config)
 
         self.assertEqual(event["client"], "claude-code")
+        self.assertEqual(event["reasoning_effort"], "high")
         self.assertEqual(event["model_calls"], 2)
         self.assertEqual(event["tokens_input"], 375)
         self.assertEqual(event["tool_category_counts"], {"filesystem_read": 1})
@@ -814,7 +823,7 @@ notify = ["project-specific"]
         self.assertEqual(event["code_edit_calls"], 0)
         self.assertEqual(event["plugin_name_counts"], {})
         self.assertEqual(event["skill_name_counts"], {})
-        self.assertEqual(event["telemetry_version"], 8)
+        self.assertEqual(event["telemetry_version"], 9)
         self.assertEqual(event["config_profile"], "smart_100k")
         self.assertEqual(event["compaction_threshold_tokens"], 127_000)
         self.assertEqual(event["compaction_scope"], "approximate_total")
@@ -823,6 +832,37 @@ notify = ["project-specific"]
         serialized = json.dumps(event)
         for sensitive in ("ACME", "contrato secreto", "/secret", "raw secret", "private answer", "synthetic private", "session-secret"):
             self.assertNotIn(sensitive, serialized)
+
+    def test_automation_metadata_has_only_closed_origin_and_numbered_slot(self):
+        key = self.config["fingerprint_key"]
+        environment = {"PRAGMAI_EXECUTION_ORIGIN": "scheduled", "PRAGMAI_AUTOMATION_SLOT": "123", "PRAGMAI_AUTOMATION_RUN_ID": "private-run-001"}
+        first = connector.automation_metadata(key, environment)
+        second = connector.automation_metadata(key, {**environment, "PRAGMAI_AUTOMATION_RUN_ID": "private-run-002"})
+        self.assertEqual(first["execution_origin"], "scheduled")
+        self.assertEqual(first["automation_slot"], second["automation_slot"])
+        self.assertNotEqual(first["automation_run_key"], second["automation_run_key"])
+        self.assertNotIn("private-run-001", json.dumps(first))
+        self.assertNotIn("bot_123", json.dumps(first))
+        self.assertEqual(connector.automation_metadata(key, {}), {})
+        self.assertNotIn("automation_slot", connector.automation_metadata(
+            key,
+            {"PRAGMAI_EXECUTION_ORIGIN": "scheduled", "PRAGMAI_AUTOMATION_SLOT": "/private/path"}
+        ))
+
+    def test_claude_scheduled_run_is_attributed_without_mispricing_mixed_models(self):
+        records = [
+            {"type": "user", "uuid": "private-user", "message": {"content": "private prompt"}},
+            {"type": "assistant", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 100, "output_tokens": 20}}},
+            {"type": "assistant", "message": {"model": "claude-opus-5", "usage": {"input_tokens": 120, "output_tokens": 30}}},
+        ]
+        with mock.patch.dict(connector.os.environ, {"PRAGMAI_EXECUTION_ORIGIN": "scheduled", "PRAGMAI_AUTOMATION_SLOT": "123", "PRAGMAI_AUTOMATION_RUN_ID": "private-run-001"}):
+            event = self.claude_event_from_records(records)
+        self.assertEqual(event["execution_origin"], "scheduled")
+        self.assertEqual(event["automation_slot"], 123)
+        self.assertRegex(event["automation_run_key"], r"^ar_[a-f0-9]{32}$")
+        self.assertEqual(event["model"], "unknown")
+        self.assertEqual(event["model_calls"], 2)
+        self.assertNotIn("bot_123", json.dumps(event))
 
     def test_claude_code_accepts_direct_compaction_boundary_records(self):
         records = [

@@ -4,6 +4,22 @@ Claude Code usa el conector compartido `adapters/pragm_ai_connector.py`. La inst
 
 Esta integración cubre Claude Code, incluso cuando se ejecuta dentro de Warp. No cubre claude.ai web.
 
+## Ejecuciones automatizadas (telemetría v9, pendiente de release)
+
+Para un proceso local que inicia Claude Code, el programador puede proporcionar estas variables de entorno al proceso y sus hooks:
+
+| Variable | Valor admitido | Uso |
+|---|---|---|
+| `PRAGMAI_EXECUTION_ORIGIN` | `scheduled`, `api_trigger` u `other_automation` | Declara el origen. Sin esta variable no se atribuye una automatización. |
+| `PRAGMAI_AUTOMATION_SLOT` | Número de `1` a `9999`, asignado de forma única a cada bot dentro de la empresa | Permite mostrar «Bot 12» sin enviar el nombre. Si falta, queda sin identificar. |
+| `PRAGMAI_AUTOMATION_RUN_ID` | Identificador técnico distinto por corrida, de 8 a 128 caracteres del mismo alfabeto | Huella para contar corridas distintas. Se descarta el valor original. |
+
+Cada empresa debe mantener su propia asignación de números para evitar combinar bots distintos en el panel. El hook no deduce que una ejecución fue programada por su hora ni por el texto de la tarea. No usa el identificador de sesión de Claude como clave de corrida. Si falta la marca de corrida, el panel no puede calcular un costo fiable por ejecución. Si un bot utiliza varios modelos en un intercambio, el modelo del evento queda `unknown` y su equivalente API sin cobertura, para no valorar todos sus tokens con la tarifa del último modelo. El nivel de esfuerzo informado por `Stop` es una observación final, no una serie por llamada.
+
+Esta captura requiere que el hook local se ejecute en el proceso automatizado. Las rutinas cloud, las llamadas directas a la API de Anthropic y las tareas locales de Desktop que no hereden el hook quedan sin validar y no deben presentarse como cubiertas. El equivalente API no es el cargo marginal de una suscripción.
+
+Referencias del proveedor: [campos comunes del hook `Stop` y esfuerzo](https://code.claude.com/docs/en/hooks), [rutinas cloud y tareas locales](https://code.claude.com/docs/en/routines).
+
 ## Alta
 
 1. Instalar el ejecutable oficial para la plataforma.
