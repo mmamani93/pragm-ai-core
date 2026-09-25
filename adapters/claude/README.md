@@ -1,6 +1,6 @@
 # Adaptador de Claude Code
 
-Claude Code usa el conector compartido `adapters/pragm_ai_connector.py`. La instalación agrega un hook `Stop` que procesa localmente el último intercambio con uso observado y envía un único evento técnico agregado.
+Claude Code usa el conector compartido `adapters/pragm_ai_connector.py`. La instalación agrega un hook `Stop` que procesa localmente el último intercambio humano y envía un único evento técnico agregado.
 
 Esta integración cubre Claude Code, incluso cuando se ejecuta dentro de Warp. No cubre claude.ai web.
 
