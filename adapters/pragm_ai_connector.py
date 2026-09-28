@@ -29,7 +29,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler, HTTPSHandler
 
-VERSION = "0.7.20"
+VERSION = "0.7.21"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 9
 TELEMETRY_V9_FIELDS = {"execution_origin", "automation_slot", "automation_run_key"}
@@ -1708,25 +1708,59 @@ def telemetry_v8_fallback(event: dict) -> dict:
     return fallback
 
 
+SAFE_INGEST_REASONS = {
+    "Invalid tokens_input",
+    "Invalid tokens_output",
+    "Invalid tokens_cache_read",
+    "Invalid tokens_cache_write",
+    "Invalid tokens_cache_write_1h",
+    "Invalid tokens_reasoning",
+    "compaction_measurements_count_exceeded",
+    "compaction_measurements_structure_invalid",
+    "compaction_measurements_call_tokens_invalid",
+    "compaction_measurements_aggregate_tokens_invalid",
+    "compaction_measurements_relationship_invalid",
+    "compaction_measurements_position_duplicate",
+    "unknown_field",
+}
+
+
+def ingest_error_reason(error: HTTPError) -> str | None:
+    if error.fp is None:
+        return None
+    try:
+        body = error.read(1024)
+        reason = json.loads(body).get("code")
+        return reason if reason in SAFE_INGEST_REASONS else None
+    except (OSError, ValueError, AttributeError, TypeError, KeyError):
+        return None
+
+
+def ingestion_failure(error: HTTPError, reason: str | None) -> RuntimeError:
+    detail = f"; {reason}" if reason else ""
+    return RuntimeError(f"PragmAI rejected the event ({error.code}{detail}).")
+
+
 def send_event(event: dict, config: dict) -> None:
     try:
         post_event(event, config)
     except HTTPError as error:
-        if error.code in (400, 422) and event.get("telemetry_version") == TELEMETRY_VERSION:
+        reason = ingest_error_reason(error)
+        schema_fallback = reason in (None, "unknown_field")
+        if error.code in (400, 422) and schema_fallback and event.get("telemetry_version") == TELEMETRY_VERSION:
             try:
                 post_event(telemetry_v8_fallback(event), config)
                 return
             except HTTPError as fallback_error:
-                if fallback_error.code in (400, 422):
+                fallback_reason = ingest_error_reason(fallback_error)
+                if fallback_error.code in (400, 422) and fallback_reason in (None, "unknown_field"):
                     try:
                         post_event(telemetry_v7_fallback(event), config)
                         return
                     except HTTPError as final_error:
-                        raise RuntimeError(
-                            f"PragmAI rejected the event ({final_error.code})."
-                        ) from final_error
-                raise RuntimeError(f"PragmAI rejected the event ({fallback_error.code}).") from fallback_error
-        raise RuntimeError(f"PragmAI rejected the event ({error.code}).") from error
+                        raise ingestion_failure(final_error, ingest_error_reason(final_error)) from final_error
+                raise ingestion_failure(fallback_error, fallback_reason) from fallback_error
+        raise ingestion_failure(error, reason) from error
 
 
 def run_chained_notify(payload_json: str, config: dict) -> None:

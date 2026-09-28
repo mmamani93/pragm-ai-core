@@ -168,6 +168,42 @@ class ConnectorTests(unittest.TestCase):
                 connector.send_event({"telemetry_version": 8}, delivery_config)
         opened.assert_called_once()
 
+    def test_event_delivery_reports_safe_validation_cause_without_retrying(self):
+        delivery_config = {
+            **self.config,
+            "endpoint": connector.DEFAULT_ENDPOINT,
+            "ingest_secret": "test-secret",
+        }
+        rejected = connector.HTTPError(
+            delivery_config["endpoint"], 400, "rejected", {},
+            io.BytesIO(json.dumps({
+                "error": "Invalid compaction_measurements",
+                "code": "compaction_measurements_aggregate_tokens_invalid",
+                "private": "PRIVATE_TRANSCRIPT_CONTENT"
+            }).encode()),
+        )
+        with mock.patch.object(connector, "open_https", side_effect=rejected) as opened:
+            with self.assertRaisesRegex(RuntimeError, r"400; compaction_measurements_aggregate_tokens_invalid") as raised:
+                connector.send_event({"telemetry_version": connector.TELEMETRY_VERSION}, delivery_config)
+        self.assertNotIn("PRIVATE_TRANSCRIPT_CONTENT", str(raised.exception))
+        opened.assert_called_once()
+
+    def test_event_delivery_discards_unrecognized_server_detail(self):
+        delivery_config = {
+            **self.config,
+            "endpoint": connector.DEFAULT_ENDPOINT,
+            "ingest_secret": "test-secret",
+        }
+        rejected = connector.HTTPError(
+            delivery_config["endpoint"], 400, "rejected", {},
+            io.BytesIO(b'{"code":"PRIVATE_TRANSCRIPT_CONTENT"}'),
+        )
+        with mock.patch.object(connector, "open_https", side_effect=[rejected, rejected, rejected]) as opened:
+            with self.assertRaisesRegex(RuntimeError, r"rejected the event \(400\)") as raised:
+                connector.send_event({"telemetry_version": connector.TELEMETRY_VERSION}, delivery_config)
+        self.assertNotIn("PRIVATE_TRANSCRIPT_CONTENT", str(raised.exception))
+        self.assertEqual(opened.call_count, 3)
+
     def test_repair_synchronizes_package_managed_standalone_before_reapplying_hooks(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -880,6 +916,22 @@ notify = ["project-specific"]
             transcript = Path(directory) / "synthetic.jsonl"
             transcript.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
             return connector.claude_event({"session_id": "synthetic-session", "transcript_path": str(transcript)}, self.config)
+
+    def test_claude_long_exchange_preserves_large_aggregate_counters(self):
+        records = [
+            {"type": "user", "uuid": "synthetic-user", "message": {"content": "synthetic request"}},
+            {"type": "compact_boundary", "compactMetadata": {"preTokens": 200_000}},
+            *({"type": "assistant", "message": {
+                "model": "claude-sonnet-4-5",
+                "usage": {"cache_read_input_tokens": 100_000, "output_tokens": 1}
+            }} for _ in range(101)),
+        ]
+        event = self.claude_event_from_records(records)
+        self.assertEqual(event["tokens_input"], 10_100_000)
+        self.assertEqual(event["model_calls"], 101)
+        measurement, = event["compaction_measurements"]
+        self.assertEqual(measurement["post_input_tokens"], 10_100_000)
+        self.assertEqual(measurement["tokens_avoided_estimated"], 10_100_000)
 
     def test_claude_timing_uses_consistent_milliseconds(self):
         cases = [
