@@ -12,6 +12,8 @@ PragmAI Core may send an employee-authorized email plus technical counters, clos
 
 Codex telemetry v5 can emit a closed numeric counterfactual for the current exchange. Telemetry v6 adds a deterministic sensitivity grid at the current compaction threshold, ±25,000 and ±50,000 tokens, plus the original limit. Telemetry v7 adds aggregate applied-code line counters and completed plugin calls. Telemetry v8 adds approved public labels for plugins and skills plus Claude Code active-time, edit-result, commit, pull-request, and subagent counters. Telemetry v9 can add a declared automation origin, a company-assigned numeric bot slot, and an installation-keyed HMAC of a scheduler run marker. No bot name or raw run identifier is sent. All source records are processed transiently; only aggregate counters and closed labels leave the workstation.
 
+Connector 0.7.22 also supports independent native technical observations and an optional in-memory loopback OTel log receiver. Observations use a separate closed schema and do not change exchange counts. See the native-observation contract in the telemetry reference.
+
 See [the telemetry reference](docs/TELEMETRY.md) and [a synthetic complete event](examples/telemetry-event.json).
 
 ## Commands

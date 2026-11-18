@@ -87,7 +87,7 @@ model_auto_compact_token_limit_scope = "body_after_prefix"
 
 El límite se aplica al cuerpo posterior al prefijo fijo, no al contexto total. Puede sobrepasarse alrededor de una transición y una fila puede agregar varias llamadas internas; por eso se miden llamadas, máximos y compactaciones observadas en lugar de inferirlos de una cifra aislada.
 
-En Claude Code no existe una opción pública equivalente a `body_after_prefix`. PragmAI deriva un disparo aproximado del 64% sobre una ventana de referencia de 200.000 tokens y agrega las instrucciones de checkpoint. Debe validarse en cada entorno real; si el cliente no lo respeta, se informa como no validado.
+En Claude Code no existe una opción pública equivalente a `body_after_prefix`. El candidato 0.7.22 fija `CLAUDE_CODE_AUTO_COMPACT_WINDOW=127000` y retira el override porcentual administrado; OFF restaura ambos valores originales. La versión publicada 0.7.21 usa 64% con una referencia informativa de 200.000 tokens: esa referencia no demuestra la ventana efectiva del cliente. Validar habilitación, precedencia y compactación en cada entorno real antes de afirmar que se aplicó un umbral. La nueva intervención usa el experimento v3 y no se mezcla con v2.
 
 El checkpoint objetivo es de hasta 10.000 tokens y conserva:
 
@@ -138,7 +138,7 @@ Sólo cuando el cliente las expone:
 - llamadas posteriores a herramientas, continuaciones y fallas de caché;
 - conteos por familia de herramientas y caracteres agregados de resultados;
 - duración y mediciones técnicas de compactación;
-- configuración declarada frente a la efectiva y estado ON/OFF;
+- configuración escrita frente al perfil esperado y estado ON/OFF; no confirma aplicación efectiva;
 - identidad experimental seudónima sólo en `experiment`;
 - categorías cerradas de trabajo y recurrencia privada;
 - reproducción y sensibilidad de compactación cuando la versión de telemetría las soporta.
@@ -149,6 +149,12 @@ No se inventan campos ausentes. Los promedios, totales, costos, créditos y recu
 Los resultados posteriores a una compactación son observados. Tokens evitados, costo de compactar, créditos evitados y ahorro neto son estimaciones contrafactuales del servidor: pueden ser negativos y no son un cobro ni un reintegro oficial del proveedor.
 
 PragmAI no emite un puntaje de automatización desde el conector. Las recomendaciones requieren análisis central y evidencia empresarial adicional.
+
+## Observaciones nativas adicionales del candidato 0.7.22
+
+La ampliación técnica autorizada admite observaciones independientes de ventana y caché muestreadas, versiones numéricas del cliente, categorías cerradas de modelo/velocidad/esfuerzo, estados de solicitudes y compactaciones. Se envían directamente a un endpoint separado: no incrementan intercambios ni costos ni se suman contadores acumulativos entre instantáneas. No se transmiten identificadores de sesión, turno o solicitud; cada observación usa un ID aleatorio independiente. Campos ausentes permanecen ausentes y etiquetas públicas desconocidas se agrupan como `other`.
+
+La barra de estado conserva el comando anterior y su salida. El muestreo mantiene únicamente un reloj operativo local, sin métricas ni historial. Los callbacks nativos corren en segundo plano y no emiten instrucciones al modelo. El receptor OTel opcional opera en memoria sobre loopback y descarta cualquier campo fuera de listas cerradas antes de enviar. No activa exportadores ni instala un servicio automáticamente. La instalación, el consentimiento, las fuentes compatibles y los límites están en `pragm-ai/README.md`, sección de diagnósticos nativos.
 
 ## Actualizaciones y seguridad
 

@@ -72,6 +72,18 @@ PragmAI Core does not emit automation scores, recommendations, quality judgments
 
 The v5 counterfactual, v6 sensitivity grid, and v7/v8 activity counters read local technical records only transiently. The session identifier, call sequence, source records, file metadata, diffs, custom names, and conversation content never enter the event. The transformations run entirely as deterministic local software and do not call the model. The hosted service values these numeric aggregates and labels inferred values separately from observed counters.
 
+## Independent native observations (connector 0.7.22)
+
+The connector can send separate technical observations to `/api/signals`. These never count as human exchanges or billed usage. Native hooks observe request attempts, failures and compacting callbacks; Claude status-line samples provide the model window, current input/output, cumulative cache counters, closed miss causes and numeric client version. Existing command-based status-line output is preserved. The absolute window configured for Claude ON is 127,000 tokens; OFF restores the original window and percentage values. A configured value does not establish effective precedence, enablement or a measured threshold. The changed intervention uses experiment v3, separate from v2 history.
+
+The envelope has random `signal_id`, `schema_version=1`, company, authorized email, closed client/kind, connector version, optional numeric client version, observation timestamp, declared ON/OFF state, `metrics` and `categories`. No native session, turn or API request identifiers are transmitted or used to group observations.
+
+Numeric keys: `context_window_tokens`, `context_input_tokens`, `context_output_tokens`, `configured_window_tokens`, `cache_requests`, `cache_misses`, `cache_expected_rebuilds`, `cache_write_tokens`, `cache_miss_recache_tokens`, `recache_tokens_if_cold`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_5m_tokens`, `cache_write_1h_tokens`, `duration_ms`, `attempt`, `pre_tokens`, `post_tokens`. Values are optional integers from zero through one billion. Categories use fixed catalogs for trigger, status, speed, effort, error category, request source, cache cause and approved public model family. Unknown public-model/custom-name candidates become `other`.
+
+Snapshots are sampled approximately once per minute per installation, and cumulative counters must not be summed between samples. The operational sampling clock stores only a timestamp; it is not an analytics buffer. Native hooks run in the background, time out quickly and drop delivery failures without a local queue. Callback and OTel observations remain separate kinds, not additive counts of the same compaction. A missing completion never proves failure.
+
+The optional `claude-otel-serve` command runs an in-memory, loopback-only OTLP HTTP/JSON log receiver. It forwards only allowlisted technical values; all content, raw error text, resource identifiers and unknown attributes are discarded. No service or exporter is installed automatically. Cloud orchestration and unsupported/untrusted hooks remain outside validated coverage. Verify compatibility and consent in the actual client before claiming active measurement.
+
 ## Explicitly forbidden
 
 The connector and server schema reject prompts, responses, free text, transcripts, commands, arguments, arbitrary tool names, custom plugin/skill names, tool output, file names, paths, URLs, session/thread/trace identifiers, and unknown fields. Only labels from the public closed catalogs are accepted. Privacy tests verify representative cases before every release.

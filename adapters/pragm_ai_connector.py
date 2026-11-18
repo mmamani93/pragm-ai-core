@@ -29,7 +29,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler, HTTPSHandler
 
-VERSION = "0.7.21"
+VERSION = "0.7.22"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 9
 TELEMETRY_V9_FIELDS = {"execution_origin", "automation_slot", "automation_run_key"}
@@ -46,7 +46,7 @@ TELEMETRY_V8_FIELDS = {
     "skill_name_counts",
     "subagent_calls",
 }
-EXPERIMENT_ID = "optimization_3day_crossover_v2"
+EXPERIMENT_ID = "optimization_3day_crossover_v3"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
 OPTIMIZATION_MODES = {"experiment", "always_on"}
 CLAUDE_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
@@ -328,6 +328,8 @@ def install_privacy_notice(mode: str) -> str:
     return f"""PragmAI will send only aggregate technical metrics and closed categories.
 It will not send prompts, responses, commands, arguments, files, paths, URLs, or transcripts.
 The authorized email will be stored as the employee identifier within the configured company.
+Independent technical observations include sampled context/cache counters, client version, closed model/speed/effort labels, request outcomes, and compaction starts/completions.
+A local cooldown clock contains only a timestamp. No telemetry queue or payload history is created.
 {mode_notice}"""
 
 
@@ -1237,21 +1239,18 @@ def claude_configuration_status(optimization_enabled: bool, config: dict) -> dic
     try:
         settings = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
         instructions = (Path.home() / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
-        configured_raw = (settings.get("env") or {}).get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
-        configured = integer(configured_raw)
         expected = claude_optimization_values(config, optimization_enabled)
         accepted_blocks = [claude_compact_block(optimization_enabled)]
         target_version = managed_target_version(config)
         if target_version:
             accepted_blocks.append(claude_compact_block(optimization_enabled, target_version))
         matched = (
-            configured_raw == expected.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
+            all((settings.get("env") or {}).get(key) == value for key, value in expected.items())
             and any(block in instructions for block in accepted_blocks)
         )
         return {
             "configured_compaction_threshold_tokens": (
-                round(configured * COMPACTION_POLICY["claude_reference_context_tokens"] / 100)
-                if configured else None
+                integer((settings.get("env") or {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")) or None
             ),
             "config_status": "matched" if matched else "drift",
         }
@@ -1280,6 +1279,7 @@ def aggregate_usage(
     usages: list[dict],
     cache_write_in_input: bool = True,
     compaction_threshold: int | None = None,
+    price_threshold: int = LONG_CONTEXT_THRESHOLD_TOKENS,
 ) -> dict:
     compaction_threshold = compaction_threshold or COMPACTION_POLICY["codex_growth_threshold_tokens"]
     calls = []
@@ -1307,7 +1307,7 @@ def aggregate_usage(
                 "total": total,
             })
     inputs = [call["input"] for call in calls]
-    long_calls = [call for call in calls if call["input"] > LONG_CONTEXT_THRESHOLD_TOKENS]
+    long_calls = [call for call in calls if call["input"] > price_threshold]
     long_fresh = sum(max(call["input"] - call["cached"] - call["written"], 0) for call in long_calls)
     return {
         "tokens_input": sum(inputs),
@@ -1628,6 +1628,7 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         usages,
         cache_write_in_input=False,
         compaction_threshold=compaction_threshold,
+        price_threshold=100_000 if re.fullmatch(r"claude-haiku-5-5(?:-[0-9]+)?", model.lower()) else LONG_CONTEXT_THRESHOLD_TOKENS,
     )
     extended_activity = claude_extended_activity(exchange_records)
     effort = payload.get("effort")
@@ -1679,7 +1680,308 @@ def claude_event(payload: dict, config: dict) -> dict | None:
     return {key: value for key, value in event.items() if value is not None}
 
 
-def post_event(event: dict, config: dict) -> None:
+# Native diagnostics are independent observations, never user exchanges or bills.
+NATIVE_METRICS = {
+    "context_window_tokens", "context_input_tokens", "context_output_tokens",
+    "cache_requests", "cache_misses", "cache_expected_rebuilds", "cache_write_tokens",
+    "cache_miss_recache_tokens", "recache_tokens_if_cold", "input_tokens", "output_tokens",
+    "cache_read_tokens", "cache_write_5m_tokens", "cache_write_1h_tokens", "duration_ms",
+    "attempt", "pre_tokens", "post_tokens", "configured_window_tokens",
+}
+NATIVE_MODELS = {
+    "gpt-6.2-astra": "gpt_6_2_astra", "gpt-6.2-sol": "gpt_6_2_sol",
+    "gpt-6.1-sol": "gpt_6_1_sol", "gpt-6.1-terra": "gpt_6_1_terra",
+    "gpt-6-astra": "gpt_6_astra", "gpt-6-sol": "gpt_6_sol", "gpt-6-luna": "gpt_6_luna",
+    "claude-opus-5-5": "claude_opus_5_5", "claude-opus-5": "claude_opus_5",
+    "claude-opus-4-8": "claude_opus_4_8", "claude-opus-4-6": "claude_opus_4_6",
+    "claude-sonnet-5-5": "claude_sonnet_5_5", "claude-fable-5-2": "claude_fable_5_2",
+    "claude-fable-5-1": "claude_fable_5_1", "claude-haiku-5-5": "claude_haiku_5_5",
+}
+NATIVE_CATEGORIES = {
+    "model_family": set(NATIVE_MODELS.values()) | {"other"},
+    "trigger": {"auto", "manual"}, "status": {"completed", "failed", "cancelled", "started"},
+    "speed": {"normal", "fast", "ultrafast"}, "effort": CLAUDE_EFFORT_LEVELS | {"minimal"},
+    "error_category": {"rate_limit", "authentication_failed", "billing_error", "invalid_request",
+                       "model_not_found", "server_error", "max_output_tokens", "other"},
+    "request_source": {"main", "compaction", "subagent", "other"},
+    "cache_cause": {"ttl_expired", "tools_changed", "system_prompt_changed", "other"},
+}
+
+
+def native_signal(payload: dict, client: str, config: dict) -> dict | None:
+    """Allowlist transformation. Never copy unknown payload keys or error text."""
+    event = payload.get("hook_event_name")
+    kinds = {"PreCompact": "compaction_start", "PostCompact": "compaction_complete",
+             "StopFailure": "turn_failure", "PostModelRequest": "model_request"}
+    kind = kinds.get(event)
+    metrics, categories = {}, {}
+    if event == "StatusLine" and client == "claude-code":
+        kind = "context_snapshot"
+        window = payload.get("context_window") or {}
+        usage = window.get("current_usage") or {}
+        metrics["context_window_tokens"] = window.get("context_window_size")
+        parts = [usage.get(k) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")]
+        if all(type(v) is int and v >= 0 for v in parts):
+            metrics["context_input_tokens"] = sum(parts)
+        metrics["context_output_tokens"] = usage.get("output_tokens")
+        cache = payload.get("prompt_cache") or {}
+        for source, target in {"requests": "cache_requests", "misses": "cache_misses",
+            "expected_rebuilds": "cache_expected_rebuilds", "cache_write_tokens": "cache_write_tokens",
+            "miss_recache_tokens": "cache_miss_recache_tokens", "recache_tokens_if_cold": "recache_tokens_if_cold"}.items():
+            metrics[target] = cache.get(source)
+        causes = (cache.get("last_miss_cause") or {}).get("causes") or []
+        if causes:
+            categories["cache_cause"] = causes[0] if len(causes) == 1 else "other"
+        if type(payload.get("fast_mode")) is bool:
+            categories["speed"] = "fast" if payload["fast_mode"] else "normal"
+        categories["effort"] = (payload.get("effort") or {}).get("level")
+    elif event == "PostModelRequest" and client == "codex":
+        categories["status"] = payload.get("status")
+        usage = payload.get("token_usage") or {}
+        for source, target in {"input_tokens": "input_tokens", "output_tokens": "output_tokens",
+                               "cached_input_tokens": "cache_read_tokens"}.items():
+            metrics[target] = usage.get(source)
+    elif kind:
+        categories["trigger"] = payload.get("trigger")
+        if event == "StopFailure":
+            categories["error_category"] = payload.get("error")
+    else:
+        return None
+    if client == "claude-code":
+        try:
+            env = json.loads((Path.home() / ".claude/settings.json").read_text()).get("env", {})
+            metrics["configured_window_tokens"] = int(env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW", ""))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+    model = payload.get("model")
+    model = model.get("id") if isinstance(model, dict) else model
+    if model is not None:
+        categories["model_family"] = NATIVE_MODELS.get(model, "other") if isinstance(model, str) else "other"
+    result = make_native_signal(client, kind, metrics, categories, config)
+    client_version = payload.get("version")
+    if isinstance(client_version, str) and re.fullmatch(r"[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}", client_version):
+        result["client_version"] = client_version
+    return result
+
+
+def make_native_signal(client: str, kind: str, metrics: dict, categories: dict, config: dict) -> dict:
+    return {"signal_id": secrets.token_hex(16), "schema_version": 1,
+            "company_id": config["company_id"], "employee_id": config["employee_id"],
+            "client": client, "kind": kind, "connector_version": VERSION,
+            "occurred_at": datetime.now(timezone.utc).isoformat(),
+            "optimization_enabled": active_optimization_state(config)["optimization_enabled"],
+            "metrics": {k: v for k, v in metrics.items() if k in NATIVE_METRICS
+                        and type(v) is int and 0 <= v <= 1_000_000_000},
+            "categories": {k: v if v in NATIVE_CATEGORIES[k] else "other"
+                           for k, v in categories.items() if k in NATIVE_CATEGORIES and v is not None
+                           and (v in NATIVE_CATEGORIES[k] or "other" in NATIVE_CATEGORIES[k])}}
+
+
+def send_native_signal(signal: dict, config: dict) -> None:
+    target = dict(config)
+    parsed = urlparse(config["endpoint"])
+    target["endpoint"] = f"{parsed.scheme}://{parsed.netloc}/api/signals"
+    # Direct, best effort, no retries, queues or payload files.
+    post_event(signal, target, timeout=3)
+
+
+def native_hook(client: str) -> int:
+    try:
+        payload = json.loads(sys.stdin.read(1_000_001))
+        config = load_config()
+        signal = native_signal(payload, client, config)
+        if signal:
+            send_native_signal(signal, config)
+    except Exception:
+        # Observational hooks must never interrupt the agent or echo native input.
+        pass
+    return 0
+
+
+def status_sample_due(now: int) -> bool:
+    # Operational cooldown only. This file contains a timestamp, no analytics.
+    marker = INSTALL_DIR / "status-sample-clock"
+    lock = INSTALL_DIR / "status-sample-lock"
+    try:
+        lock.mkdir()
+    except OSError:
+        try:
+            if now - int(lock.stat().st_mtime) > 60:
+                lock.rmdir()
+        except OSError:
+            pass
+        return False
+    try:
+        try:
+            previous = int(marker.read_text())
+        except (OSError, ValueError):
+            previous = 0
+        if 0 <= now - previous < 60:
+            return False
+        atomic_write(marker, str(now))
+        return True
+    finally:
+        lock.rmdir()
+
+
+def claude_status() -> int:
+    raw = sys.stdin.read(1_000_001)
+    try:
+        config = load_config()
+        previous = config.get("baseline_claude_statusline")
+        if isinstance(previous, dict) and previous.get("type") == "command" and isinstance(previous.get("command"), str):
+            # Execute only the existing user-configured command, with unchanged stdin.
+            subprocess.run(previous["command"], shell=True, input=raw, text=True,
+                           timeout=5, check=False)
+        if len(raw) <= 1_000_000 and status_sample_due(int(time.time())):
+            payload = json.loads(raw)
+            payload["hook_event_name"] = "StatusLine"
+            send_native_signal(native_signal(payload, "claude-code", config), config)
+    except Exception:
+        pass
+    return 0
+
+
+def install_native_hooks(hooks: dict, client: str) -> None:
+    events = ["PreCompact", "PostCompact", "StopFailure"] if client == "claude-code" else ["PreCompact", "PostCompact", "PostModelRequest"]
+    command_name = "claude-native" if client == "claude-code" else "codex-native"
+    for event in events:
+        entries = hooks.setdefault(event, [])
+        if not isinstance(entries, list):
+            raise RuntimeError("Native hook configuration must contain lists.")
+        entries[:] = [entry for entry in entries if not is_pragmai_command(entry, command_name)]
+        entries.append({"hooks": [{"type": "command", "command": claude_hook_command(installed_command(command_name)), "async": True, "timeout": 5}]})
+
+
+def codex_native_hooks(make_backup: bool = True, remove: bool = False) -> None:
+    path = Path.home() / ".codex/hooks.json"
+    if remove and not path.exists():
+        return
+    original = json.loads(path.read_text()) if path.exists() else {}
+    original_serialized = json.dumps(original, sort_keys=True)
+    hooks = original.setdefault("hooks", {})
+    if remove:
+        for event, entries in list(hooks.items()):
+            if isinstance(entries, list):
+                hooks[event] = [entry for entry in entries if not is_pragmai_command(entry, "codex-native")]
+                if not hooks[event]:
+                    del hooks[event]
+    else:
+        install_native_hooks(hooks, "codex")
+    if remove and json.dumps(original, sort_keys=True) == original_serialized:
+        return
+    if make_backup and path.exists():
+        backup(path)
+    atomic_write(path, json.dumps(original, indent=2) + "\n")
+
+
+def claude_otel_signals(body: dict, config: dict) -> list[dict]:
+    """Only selected OTel LOG events; resource IDs, bodies and errors are discarded."""
+    result = []
+    kinds = {"claude_code.api_request": "api_request", "claude_code.api_error": "api_error",
+             "claude_code.compaction": "compaction_result"}
+    resources = body.get("resourceLogs", [])
+    if not isinstance(resources, list) or len(resources) > 32:
+        raise ValueError("Unsupported telemetry envelope")
+    records_seen = 0
+    for resource in resources:
+        scopes = resource.get("scopeLogs", [])
+        if not isinstance(scopes, list) or len(scopes) > 32:
+            raise ValueError("Unsupported telemetry envelope")
+        for scope in scopes:
+            records = scope.get("logRecords", [])
+            records_seen += len(records)
+            if records_seen > 256:
+                raise ValueError("Telemetry batch too large")
+            for record in records:
+                attributes = {}
+                entries = record.get("attributes", [])
+                if len(entries) > 128:
+                    raise ValueError("Telemetry attributes too large")
+                for entry in entries:
+                    value = entry.get("value") or {}
+                    attributes[entry.get("key")] = next((value[k] for k in ("stringValue", "intValue", "doubleValue", "boolValue") if k in value), None)
+                name = attributes.get("event.name") or record.get("eventName")
+                if name in {"api_request", "api_error", "compaction"}:
+                    name = "claude_code." + name
+                if name not in kinds:
+                    body_value = (record.get("body") or {}).get("stringValue")
+                    name = body_value if body_value in kinds else None
+                if name not in kinds:
+                    continue
+                metrics = {}
+                for source, target in {"input_tokens": "input_tokens", "output_tokens": "output_tokens",
+                    "cache_read_tokens": "cache_read_tokens", "cache_creation_tokens": "cache_write_tokens",
+                    "cache_creation_5m_tokens": "cache_write_5m_tokens", "cache_creation_1h_tokens": "cache_write_1h_tokens",
+                    "duration_ms": "duration_ms", "attempt": "attempt", "pre_tokens": "pre_tokens", "post_tokens": "post_tokens"}.items():
+                    value = attributes.get(source)
+                    if type(value) is int or isinstance(value, str) and re.fullmatch(r"[0-9]{1,10}", value):
+                        metrics[target] = int(value)
+                categories = {k: attributes.get(k) for k in ("trigger", "speed", "effort")}
+                model = attributes.get("model")
+                if model is not None:
+                    categories["model_family"] = NATIVE_MODELS.get(model, "other") if isinstance(model, str) else "other"
+                if name == "claude_code.compaction":
+                    success = attributes.get("success")
+                    if success in (True, "true"):
+                        categories["status"] = "completed"
+                    elif success in (False, "false"):
+                        categories["status"] = "failed"
+                if name == "claude_code.api_error":
+                    code = str(attributes.get("status_code", ""))
+                    categories["error_category"] = {"429": "rate_limit", "401": "authentication_failed",
+                        "403": "authentication_failed", "400": "invalid_request", "404": "model_not_found",
+                        "500": "server_error", "502": "server_error", "503": "server_error",
+                        "529": "server_error"}.get(code, "other")
+                source = attributes.get("query_source")
+                if source is not None:
+                    categories["request_source"] = {"repl_main_thread": "main", "compact": "compaction"}.get(source, "other")
+                result.append(make_native_signal("claude-code", kinds[name], metrics, categories, config))
+    return result
+
+
+def serve_claude_otel(port: int) -> int:
+    # Explicit foreground command; no service/account/exporter is installed silently.
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    if not 1024 <= port <= 65535:
+        raise RuntimeError("Use a local port between 1024 and 65535.")
+    load_config()  # Validate configuration without caching credentials across requests.
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            try:
+                self.connection.settimeout(5)
+                length = int(self.headers.get("Content-Length", "0"))
+                if self.path != "/v1/logs" or not 0 < length <= 1_000_000 or "application/json" not in self.headers.get("Content-Type", ""):
+                    self.send_error(400, "Unsupported telemetry envelope")
+                    return
+                body = json.loads(self.rfile.read(length))
+                current_config = load_config()
+                for signal in claude_otel_signals(body, current_config):
+                    try:
+                        send_native_signal(signal, current_config)
+                    except Exception:
+                        pass
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{}')
+            except Exception:
+                self.send_error(400, "Invalid telemetry envelope")
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    print("PragmAI local technical collector running; no payloads are saved.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
+def post_event(event: dict, config: dict, timeout: int = 15) -> None:
     data = json.dumps(event, separators=(",", ":")).encode("utf-8")
     request = Request(config["endpoint"], data=data, method="POST", headers={
         "Authorization": f"Bearer {config['ingest_secret']}",
@@ -1687,7 +1989,7 @@ def post_event(event: dict, config: dict) -> None:
         "User-Agent": f"PragmAI-Connector/{VERSION}",
     })
     try:
-        with open_https(request, timeout=15) as response:
+        with open_https(request, timeout=timeout) as response:
             if response.status not in (200, 202):
                 raise RuntimeError(f"PragmAI rejected the event ({response.status}).")
     except HTTPError:
@@ -1954,6 +2256,7 @@ def install_codex(config: dict, optimization_enabled: bool = True, make_backup: 
         CODEX_RULES_BLOCK_END,
     )
     atomic_write(global_instructions, instructions_updated)
+    codex_native_hooks(make_backup)
     return [
         str(codex_config),
         str(global_instructions),
@@ -1976,10 +2279,13 @@ def remove_managed_block(text: str, start: str, end: str) -> str:
 
 def claude_optimization_values(config: dict, optimization_enabled: bool) -> dict:
     if optimization_enabled:
-        return {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": str(COMPACTION_POLICY["claude_trigger_percent"])}
+        # An absolute window avoids interpreting 64% against a native 1M window.
+        return {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": None,
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": str(COMPACTION_POLICY["effective_total_target_tokens"])}
     baseline = config.get("baseline_claude")
     baseline = baseline if isinstance(baseline, dict) else {}
-    return {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": baseline.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")}
+    return {key: baseline.get(key) for key in (
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "CLAUDE_CODE_AUTO_COMPACT_WINDOW")}
 
 
 def capture_claude_baseline(config: dict, environment: dict) -> None:
@@ -1991,7 +2297,7 @@ def capture_claude_baseline(config: dict, environment: dict) -> None:
             None if previous else environment.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
         ),
         "CLAUDE_CODE_AUTO_COMPACT_WINDOW": (
-            None if previous else environment.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+            environment.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
         ),
     }
 
@@ -2013,7 +2319,6 @@ def install_claude(config: dict | None = None, optimization_enabled: bool = True
     if not isinstance(environment, dict):
         raise RuntimeError("Claude settings env must contain an object.")
     capture_claude_baseline(config, environment)
-    environment.pop("CLAUDE_CODE_AUTO_COMPACT_WINDOW", None)
     for key, value in claude_optimization_values(config, optimization_enabled).items():
         if value is None:
             environment.pop(key, None)
@@ -2030,6 +2335,12 @@ def install_claude(config: dict | None = None, optimization_enabled: bool = True
             del stop_hooks[index]
     else:
         stop_hooks.append({"matcher": "", "hooks": [{"type": "command", "command": command, "timeout": 30}]})
+    install_native_hooks(hooks, "claude-code")
+    status = original.get("statusLine")
+    if status is None or isinstance(status, dict) and status.get("type") == "command":
+        if not is_pragmai_command(status, "claude-status"):
+            config["baseline_claude_statusline"] = status
+        original["statusLine"] = {"type": "command", "command": claude_hook_command(installed_command("claude-status"))}
     atomic_write(settings, json.dumps(original, indent=2, ensure_ascii=False) + "\n")
     claude_instructions = Path.home() / ".claude" / "CLAUDE.md"
     instructions_original = claude_instructions.read_text(encoding="utf-8") if claude_instructions.exists() else ""
@@ -2587,6 +2898,11 @@ def restore_claude(config: dict) -> int:
             raise RuntimeError("Claude settings.json must contain an object.")
         hooks = settings.get("hooks")
         if isinstance(hooks, dict):
+            for native_event, entries in list(hooks.items()):
+                if isinstance(entries, list):
+                    hooks[native_event] = [entry for entry in entries if not is_pragmai_command(entry, "claude-native")]
+                    if not hooks[native_event]:
+                        hooks.pop(native_event)
             stop_hooks = hooks.get("Stop")
             if isinstance(stop_hooks, list):
                 hooks["Stop"] = [
@@ -2596,6 +2912,12 @@ def restore_claude(config: dict) -> int:
                     hooks.pop("Stop", None)
             if not hooks:
                 settings.pop("hooks", None)
+        if is_pragmai_command(settings.get("statusLine"), "claude-status"):
+            prior = config.get("baseline_claude_statusline")
+            if prior is None:
+                settings.pop("statusLine", None)
+            else:
+                settings["statusLine"] = prior
         environment = settings.get("env")
         if not isinstance(environment, dict):
             environment = {}
@@ -2655,6 +2977,7 @@ def uninstall() -> int:
     clients = clients if isinstance(clients, list) else []
     changed = 0
     if "codex" in clients:
+        codex_native_hooks(make_backup=False, remove=True)
         changed += restore_codex(config)
     if "claude-code" in clients:
         changed += restore_claude(config)
@@ -2919,7 +3242,7 @@ def install(args) -> int:
     }
     if previous_config:
         config["previous_pragmai_version"] = previous_config.get("version", "legacy")
-        for key in ("baseline_codex", "baseline_codex_notify", "baseline_claude", "chained_notify"):
+        for key in ("baseline_codex", "baseline_codex_notify", "baseline_claude", "baseline_claude_statusline", "chained_notify"):
             if key in previous_config:
                 config[key] = previous_config[key]
     config["installed_clients"] = selected_clients
@@ -2955,6 +3278,11 @@ def parser() -> argparse.ArgumentParser:
     notify = commands.add_parser("codex-notify")
     notify.add_argument("payload")
     commands.add_parser("claude-stop")
+    commands.add_parser("claude-native")
+    commands.add_parser("codex-native")
+    commands.add_parser("claude-status")
+    otel = commands.add_parser("claude-otel-serve")
+    otel.add_argument("--port", type=int, default=4319)
     commands.add_parser("update")
     commands.add_parser("update-status")
     complete = commands.add_parser("_complete-update", help=argparse.SUPPRESS)
@@ -2976,6 +3304,12 @@ def main() -> int:
             return install(args)
         if args.command == "codex-notify":
             return codex_notify(args.payload)
+        if args.command in {"claude-native", "codex-native"}:
+            return native_hook("claude-code" if args.command == "claude-native" else "codex")
+        if args.command == "claude-otel-serve":
+            return serve_claude_otel(args.port)
+        if args.command == "claude-status":
+            return claude_status()
         if args.command == "claude-stop":
             return claude_stop()
         if args.command == "_complete-update":

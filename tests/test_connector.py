@@ -1379,7 +1379,7 @@ notify = ["project-specific"]
                 status = connector.claude_configuration_status(True, config)
 
             self.assertEqual(status["config_status"], "matched")
-            self.assertEqual(status["configured_compaction_threshold_tokens"], 128_000)
+            self.assertEqual(status["configured_compaction_threshold_tokens"], 127_000)
 
     def test_periodic_update_check_notifies_once_per_version(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1414,8 +1414,8 @@ notify = ["project-specific"]
             hook_command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
             self.assertIn(str(connector.INSTALL_FILE).replace("\\", "/"), hook_command)
             self.assertIn(str(connector.sys.executable).replace("\\", "/"), hook_command)
-            self.assertNotIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", settings["env"])
-            self.assertEqual(settings["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "64")
+            self.assertEqual(settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "127000")
+            self.assertNotIn("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", settings["env"])
             self.assertEqual(len(settings["hooks"]["Stop"]), 1)
             instructions = (claude_dir / "CLAUDE.md").read_text(encoding="utf-8")
             self.assertIn("# Existing rules", instructions)
