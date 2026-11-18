@@ -12,6 +12,7 @@ from unittest import mock
 spec = importlib.util.spec_from_file_location('updater', Path(__file__).parents[1] / 'adapters/pragm_ai_connector.py')
 c = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(c)
+NEXT_VERSION = f"{c.VERSION.rsplit('.', 1)[0]}.{int(c.VERSION.rsplit('.', 1)[1]) + 1}"
 
 
 def archive(name='pragmai.exe', data=b'MZsynthetic-binary'):
@@ -44,7 +45,7 @@ class WindowsUpdateTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d, mock.patch.object(c.shutil, 'which', return_value=binary), \
                     mock.patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], code)), \
                     mock.patch.object(c, 'fetch_bytes', return_value=data) as fetch:
-                self.assertEqual(c.download_windows_archive('0.7.22', Path(d), asset(data)), data)
+                self.assertEqual(c.download_windows_archive('0.7.20', Path(d), asset(data)), data)
                 fetch.assert_called_once()
 
     def test_winget_security_and_other_failures_do_not_fall_back(self):
@@ -52,7 +53,7 @@ class WindowsUpdateTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as d, mock.patch.object(c.shutil, 'which', return_value='winget'), \
                     mock.patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], code)), \
                     mock.patch.object(c, 'fetch_bytes') as fetch, self.assertRaises(RuntimeError):
-                c.download_windows_archive('0.7.22', Path(d), asset(archive()))
+                c.download_windows_archive('0.7.20', Path(d), asset(archive()))
             fetch.assert_not_called()
 
     def test_winget_success_and_github_downloads_require_digest(self):
@@ -63,13 +64,13 @@ class WindowsUpdateTests(unittest.TestCase):
             with mock.patch.object(c.shutil, 'which', return_value='winget'), \
                     mock.patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
                     mock.patch.object(c, 'fetch_bytes') as fetch:
-                self.assertEqual(c.download_windows_archive('0.7.22', directory, asset(data)), data)
+                self.assertEqual(c.download_windows_archive('0.7.20', directory, asset(data)), data)
                 fetch.assert_not_called()
                 with self.assertRaises(RuntimeError):
-                    c.download_windows_archive('0.7.22', directory, dict(asset(data), digest='sha256:' + '0' * 64))
+                    c.download_windows_archive('0.7.20', directory, dict(asset(data), digest='sha256:' + '0' * 64))
         with tempfile.TemporaryDirectory() as d, mock.patch.object(c.shutil, 'which', return_value=None), \
                 mock.patch.object(c, 'fetch_bytes', return_value=b'bad'), self.assertRaises(RuntimeError):
-            c.download_windows_archive('0.7.22', Path(d), asset(data))
+            c.download_windows_archive('0.7.20', Path(d), asset(data))
 
     def test_archive_rejects_traversal_and_non_executables(self):
         for data in [archive('../pragmai.exe'), archive('other.exe'), archive(data=b'not executable')]:
@@ -80,21 +81,21 @@ class WindowsUpdateTests(unittest.TestCase):
 
     def test_handoff_checks_version_and_does_not_report_success_early(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(c, 'load_config'), \
-                mock.patch.object(c, 'fetch_update_manifest', return_value={'version': '0.7.22'}), \
+                mock.patch.object(c, 'fetch_update_manifest', return_value={'version': NEXT_VERSION}), \
                 mock.patch.object(c, 'github_release_asset', return_value=asset(archive())), \
                 mock.patch.object(c, 'download_windows_archive', return_value=archive()), \
                 mock.patch.object(c.tempfile, 'mkdtemp', return_value=d), \
                 mock.patch.object(c, 'record_update_state') as record, \
-                mock.patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout='0.7.22\n')), \
+                mock.patch.object(c.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, stdout=NEXT_VERSION + '\n')), \
                 mock.patch.object(c.subprocess, 'Popen') as launch:
             self.assertEqual(c.windows_update(), 0)
-            record.assert_called_once_with('pending', '0.7.22')
+            record.assert_called_once_with('pending', NEXT_VERSION)
             self.assertEqual(launch.call_args.kwargs['env']['PYINSTALLER_RESET_ENVIRONMENT'], '1')
             self.assertIn('_complete-update', launch.call_args.args[0])
 
     def test_wrong_executable_version_stops_before_handoff(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(c, 'load_config'), \
-                mock.patch.object(c, 'fetch_update_manifest', return_value={'version': '0.7.22'}), \
+                mock.patch.object(c, 'fetch_update_manifest', return_value={'version': NEXT_VERSION}), \
                 mock.patch.object(c, 'github_release_asset', return_value=asset(archive())), \
                 mock.patch.object(c, 'download_windows_archive', return_value=archive()), \
                 mock.patch.object(c.tempfile, 'mkdtemp', return_value=d), \

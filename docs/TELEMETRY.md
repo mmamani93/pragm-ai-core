@@ -72,7 +72,7 @@ PragmAI Core does not emit automation scores, recommendations, quality judgments
 
 The v5 counterfactual, v6 sensitivity grid, and v7/v8 activity counters read local technical records only transiently. The session identifier, call sequence, source records, file metadata, diffs, custom names, and conversation content never enter the event. The transformations run entirely as deterministic local software and do not call the model. The hosted service values these numeric aggregates and labels inferred values separately from observed counters.
 
-## Independent native observations (connector 0.7.22)
+## Independent native observations (connector 0.7.23)
 
 The connector can send separate technical observations to `/api/signals`. These never count as human exchanges or billed usage. Native hooks observe request attempts, failures and compacting callbacks; Claude status-line samples provide the model window, current input/output, cumulative cache counters, closed miss causes and numeric client version. Existing command-based status-line output is preserved. The absolute window configured for Claude ON is 127,000 tokens; OFF restores the original window and percentage values. A configured value does not establish effective precedence, enablement or a measured threshold. The changed intervention uses experiment v3, separate from v2 history.
 

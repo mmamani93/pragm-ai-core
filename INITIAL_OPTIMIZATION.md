@@ -87,7 +87,7 @@ model_auto_compact_token_limit_scope = "body_after_prefix"
 
 El límite se aplica al cuerpo posterior al prefijo fijo, no al contexto total. Puede sobrepasarse alrededor de una transición y una fila puede agregar varias llamadas internas; por eso se miden llamadas, máximos y compactaciones observadas en lugar de inferirlos de una cifra aislada.
 
-En Claude Code no existe una opción pública equivalente a `body_after_prefix`. El candidato 0.7.22 fija `CLAUDE_CODE_AUTO_COMPACT_WINDOW=127000` y retira el override porcentual administrado; OFF restaura ambos valores originales. La versión publicada 0.7.21 usa 64% con una referencia informativa de 200.000 tokens: esa referencia no demuestra la ventana efectiva del cliente. Validar habilitación, precedencia y compactación en cada entorno real antes de afirmar que se aplicó un umbral. La nueva intervención usa el experimento v3 y no se mezcla con v2.
+En Claude Code no existe una opción pública equivalente a `body_after_prefix`. El candidato 0.7.23 fija `CLAUDE_CODE_AUTO_COMPACT_WINDOW=127000` y retira el override porcentual administrado; OFF restaura ambos valores originales. La versión publicada 0.7.21 usa 64% con una referencia informativa de 200.000 tokens: esa referencia no demuestra la ventana efectiva del cliente. Validar habilitación, precedencia y compactación en cada entorno real antes de afirmar que se aplicó un umbral. La nueva intervención usa el experimento v3 y no se mezcla con v2.
 
 El checkpoint objetivo es de hasta 10.000 tokens y conserva:
 
@@ -150,7 +150,7 @@ Los resultados posteriores a una compactación son observados. Tokens evitados, 
 
 PragmAI no emite un puntaje de automatización desde el conector. Las recomendaciones requieren análisis central y evidencia empresarial adicional.
 
-## Observaciones nativas adicionales del candidato 0.7.22
+## Observaciones nativas adicionales del candidato 0.7.23
 
 La ampliación técnica autorizada admite observaciones independientes de ventana y caché muestreadas, versiones numéricas del cliente, categorías cerradas de modelo/velocidad/esfuerzo, estados de solicitudes y compactaciones. Se envían directamente a un endpoint separado: no incrementan intercambios ni costos ni se suman contadores acumulativos entre instantáneas. No se transmiten identificadores de sesión, turno o solicitud; cada observación usa un ID aleatorio independiente. Campos ausentes permanecen ausentes y etiquetas públicas desconocidas se agrupan como `other`.
 
