@@ -1,6 +1,7 @@
 import importlib.util
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -52,7 +53,7 @@ class NativeSignalsTests(unittest.TestCase):
         self.assertEqual(s['metrics'],{})
         self.assertEqual(s['categories'],{'error_category':'other'})
 
-    def test_on_off_restores_both_settings_and_preserves_statusline_and_hooks(self):
+    def test_on_off_preserves_settings_statusline_and_hooks(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(c.Path,'home',return_value=Path(d)):
             home = Path(d); (home/'.claude').mkdir()
             old = {'type':'command','command':'existing-status'}
@@ -64,15 +65,75 @@ class NativeSignalsTests(unittest.TestCase):
             c.install_claude(config,True,False)
             c.install_claude(config,True,False)
             current = json.loads(path.read_text())
-            self.assertEqual(current['env']['CLAUDE_CODE_AUTO_COMPACT_WINDOW'],'127000')
-            self.assertNotIn('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE',current['env'])
-            self.assertEqual(len(current['hooks']['PreCompact']),2)
+            self.assertEqual(current['env']['CLAUDE_CODE_AUTO_COMPACT_WINDOW'],'300000')
+            self.assertEqual(current['env']['CLAUDE_AUTOCOMPACT_PCT_OVERRIDE'],'80')
+            self.assertEqual(len(current['hooks']['PreCompact']),3)
+            guide = current['hooks']['PreCompact'][-1]
+            self.assertEqual(guide['matcher'], 'auto')
+            self.assertTrue(c.is_pragmai_command(guide, 'claude-compact-guide'))
+            self.assertFalse(guide['hooks'][0].get('async', False))
             self.assertEqual(config['baseline_claude_statusline'],old)
             c.install_claude(config,False,False)
             current = json.loads(path.read_text())
             self.assertEqual(current['env']['CLAUDE_CODE_AUTO_COMPACT_WINDOW'],'300000')
             self.assertEqual(current['env']['CLAUDE_AUTOCOMPACT_PCT_OVERRIDE'],'80')
             self.assertEqual(current['hooks']['PreCompact'][0],hook)
+            self.assertEqual(len(current['hooks']['PreCompact']),2)
+            c.install_claude(config,True,False)
+            c.restore_claude(config)
+            restored = json.loads(path.read_text())
+            self.assertEqual(restored['hooks'], {'PreCompact': [hook]})
+            self.assertEqual(restored['statusLine'], old)
+
+    def test_compaction_guide_only_reads_bounded_local_context(self):
+        def response(message_id):
+            return {"type": "assistant", "message": {
+                "id": message_id, "usage": {"input_tokens": 80_000}, "content": "PRIVATE_SENTINEL",
+            }}
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trace.jsonl"
+            auto = {"type": "system", "subtype": "compact_boundary", "compactMetadata": {"trigger": "auto"}}
+            manual = {**auto, "compactMetadata": {"trigger": "manual"}}
+            cases = [
+                ("auto", [auto, *[response("msg-1")] * 4], True),
+                ("auto", [auto, *[response(str(i)) for i in range(4)]], False),
+                ("auto", [auto, response("msg-1"), manual, response("msg-2")], False),
+                ("auto", [response("msg-1")], False),
+                ("auto", [auto], False),
+                ("manual", [auto, response("msg-1")], False),
+            ]
+            for trigger, records, quick_refill in cases:
+                with self.subTest(trigger=trigger, quick_refill=quick_refill, records=len(records)):
+                    path.write_text("\n".join(map(json.dumps, records)) + "\n", encoding="utf-8")
+                    result = subprocess.run(
+                        [c.sys.executable, c.__file__, "claude-compact-guide"],
+                        input=json.dumps({
+                            "hook_event_name": "PreCompact", "trigger": trigger,
+                            "transcript_path": str(path), "custom_instructions": "PRIVATE_SENTINEL",
+                        }),
+                        capture_output=True, text=True, timeout=5, check=True,
+                    )
+                    expected = c.CLAUDE_COMPACT_GUIDANCE if trigger == "auto" else ""
+                    if quick_refill:
+                        expected += c.CLAUDE_QUICK_REFILL_GUIDANCE
+                    self.assertEqual(result.stdout.strip(), expected)
+                    self.assertEqual(result.stderr, "")
+                    self.assertNotIn("PRIVATE_SENTINEL", result.stdout)
+
+            path.write_text(json.dumps(auto) + "\n" + json.dumps(response("msg-1")), encoding="utf-8")
+            self.assertFalse(c.claude_quick_refill(path, max_bytes=24))
+            path.write_text("{truncated", encoding="utf-8")
+            with (
+                mock.patch.object(c.sys, "stdin", io.StringIO(json.dumps({
+                    "hook_event_name": "PreCompact", "trigger": "auto", "transcript_path": str(path),
+                }))),
+                mock.patch.object(c.sys, "stdout", io.StringIO()) as out,
+                mock.patch.object(c, "send_native_signal") as send,
+            ):
+                self.assertEqual(c.claude_compact_guide(), 0)
+                self.assertEqual(out.getvalue().strip(), c.CLAUDE_COMPACT_GUIDANCE)
+                send.assert_not_called()
 
     def test_native_codex_hooks_do_not_erase_other_handlers(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(c.Path,'home',return_value=Path(d)):

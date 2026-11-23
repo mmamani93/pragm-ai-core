@@ -74,7 +74,7 @@ The v5 counterfactual, v6 sensitivity grid, and v7/v8 activity counters read loc
 
 ## Independent native observations (connector 0.7.23)
 
-The connector can send separate technical observations to `/api/signals`. These never count as human exchanges or billed usage. Native hooks observe request attempts, failures and compacting callbacks; Claude status-line samples provide the model window, current input/output, cumulative cache counters, closed miss causes and numeric client version. Existing command-based status-line output is preserved. The absolute window configured for Claude ON is 127,000 tokens; OFF restores the original window and percentage values. A configured value does not establish effective precedence, enablement or a measured threshold. The changed intervention uses experiment v3, separate from v2 history.
+The connector can send separate technical observations to `/api/signals`. These never count as human exchanges or billed usage. Native hooks observe request attempts, failures and compacting callbacks; Claude status-line samples provide the model window, current input/output, cumulative cache counters, closed miss causes and numeric client version. Existing command-based status-line output is preserved. From 0.7.24, Claude owns the threshold in both arms. The connector records observed compactions and can sample the configured window separately. Experiment v4 identifies the revised intervention.
 
 The envelope has random `signal_id`, `schema_version=1`, company, authorized email, closed client/kind, connector version, optional numeric client version, observation timestamp, declared ON/OFF state, `metrics` and `categories`. No native session, turn or API request identifiers are transmitted or used to group observations.
 

@@ -87,7 +87,7 @@ model_auto_compact_token_limit_scope = "body_after_prefix"
 
 El límite se aplica al cuerpo posterior al prefijo fijo, no al contexto total. Puede sobrepasarse alrededor de una transición y una fila puede agregar varias llamadas internas; por eso se miden llamadas, máximos y compactaciones observadas en lugar de inferirlos de una cifra aislada.
 
-En Claude Code no existe una opción pública equivalente a `body_after_prefix`. El candidato 0.7.23 fija `CLAUDE_CODE_AUTO_COMPACT_WINDOW=127000` y retira el override porcentual administrado; OFF restaura ambos valores originales. La versión publicada 0.7.21 usa 64% con una referencia informativa de 200.000 tokens: esa referencia no demuestra la ventana efectiva del cliente. Validar habilitación, precedencia y compactación en cada entorno real antes de afirmar que se aplicó un umbral. La nueva intervención usa el experimento v3 y no se mezcla con v2.
+En Claude Code, el código de 0.7.24 delega la ventana en el cliente y conserva la medición. En ON, añade una guía breve para retomar con lecturas acotadas después de compactar, con una instrucción específica si vuelve a compactar tras pocas llamadas. La migración y el alcance experimental se describen en [el adaptador de Claude](adapters/claude/README.md#optimización-y-compactación).
 
 El checkpoint objetivo es de hasta 10.000 tokens y conserva:
 

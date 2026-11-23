@@ -234,6 +234,7 @@ class ConnectorTests(unittest.TestCase):
             install_file.write_text("connector", encoding="utf-8")
             install_file.chmod(0o700)
             config = {
+                "version": "0.7.23",
                 "endpoint": connector.DEFAULT_ENDPOINT,
                 "ingest_secret": "0123456789abcdef",
                 "company_id": "TestCompany",
@@ -270,7 +271,7 @@ class ConnectorTests(unittest.TestCase):
             }
             claude.joinpath("settings.json").write_text(json.dumps({
                 "hooks": {"Stop": [other_hook, pragmai_hook]},
-                "env": {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "64"},
+                "env": {"CLAUDE_CODE_AUTO_COMPACT_WINDOW": "127000"},
                 "theme": "dark",
             }), encoding="utf-8")
             claude.joinpath("CLAUDE.md").write_text(
@@ -835,8 +836,15 @@ notify = ["project-specific"]
             self.assertIsNone(connector.codex_event(payload, self.config, root))
 
     def test_claude_code_aggregates_transcript_without_uploading_content(self):
-        with tempfile.TemporaryDirectory() as directory:
-            transcript = Path(directory) / "claude.jsonl"
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(connector.Path, "home", return_value=Path(directory)):
+            home = Path(directory)
+            claude_dir = home / ".claude"
+            claude_dir.mkdir()
+            (claude_dir / "settings.json").write_text(
+                '{"env":{"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"400000"}}', encoding="utf-8",
+            )
+            connector.install_claude(self.config, make_backup=False)
+            transcript = home / "claude.jsonl"
             records = [
                 {"type": "user", "uuid": "user-1", "timestamp": "2026-08-24T13:00:00Z", "message": {"content": "Analizá el contrato secreto de ACME"}},
                 {"type": "assistant", "timestamp": "2026-08-24T13:00:01Z", "message": {"model": "claude-sonnet-5", "usage": {"input_tokens": 100, "cache_read_input_tokens": 50, "cache_creation_input_tokens": 25, "output_tokens": 20}, "content": [{"type": "tool_use", "name": "Read", "input": {"path": "/secret"}}]}},
@@ -860,9 +868,14 @@ notify = ["project-specific"]
         self.assertEqual(event["plugin_name_counts"], {})
         self.assertEqual(event["skill_name_counts"], {})
         self.assertEqual(event["telemetry_version"], 9)
-        self.assertEqual(event["config_profile"], "smart_100k")
-        self.assertEqual(event["compaction_threshold_tokens"], 127_000)
-        self.assertEqual(event["compaction_scope"], "approximate_total")
+        self.assertEqual(event["config_profile"], "unknown")
+        self.assertEqual(event["config_status"], "matched")
+        for field in (
+            "compaction_threshold_tokens", "configured_compaction_threshold_tokens",
+            "calls_over_compaction_threshold",
+        ):
+            self.assertNotIn(field, event)
+        self.assertEqual(event["compaction_scope"], "unavailable")
         self.assertEqual(event["compaction_measurements"][0]["model_calls_after"], 1)
         self.assertEqual(event["compaction_measurements"][0]["compacted_context_tokens"], 12_000)
         serialized = json.dumps(event)
@@ -1379,7 +1392,6 @@ notify = ["project-specific"]
                 status = connector.claude_configuration_status(True, config)
 
             self.assertEqual(status["config_status"], "matched")
-            self.assertEqual(status["configured_compaction_threshold_tokens"], 127_000)
 
     def test_periodic_update_check_notifies_once_per_version(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1399,7 +1411,7 @@ notify = ["project-specific"]
             self.assertEqual(saved["last_update_check_at"], 100_000)
             self.assertEqual(saved["last_update_notice_version"], "0.5.4")
 
-    def test_claude_install_configures_official_auto_compaction(self):
+    def test_claude_install_leaves_auto_compaction_at_native_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             claude_dir = home / ".claude"
@@ -1414,14 +1426,13 @@ notify = ["project-specific"]
             hook_command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
             self.assertIn(str(connector.INSTALL_FILE).replace("\\", "/"), hook_command)
             self.assertIn(str(connector.sys.executable).replace("\\", "/"), hook_command)
-            self.assertEqual(settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "127000")
-            self.assertNotIn("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", settings["env"])
+            self.assertEqual(settings["env"], {"EXISTING": "kept"})
             self.assertEqual(len(settings["hooks"]["Stop"]), 1)
             instructions = (claude_dir / "CLAUDE.md").read_text(encoding="utf-8")
             self.assertIn("# Existing rules", instructions)
             self.assertIn("10,000 tokens", instructions)
 
-    def test_claude_experiment_off_restores_the_pre_install_baseline(self):
+    def test_claude_experiment_preserves_manual_window_and_percentage(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
             claude_dir = home / ".claude"
@@ -1432,12 +1443,68 @@ notify = ["project-specific"]
             config = {}
             with mock.patch.object(connector.Path, "home", return_value=home):
                 connector.install_claude(config, True, make_backup=False)
+                settings_path = claude_dir / "settings.json"
+                settings = json.loads(settings_path.read_text(encoding="utf-8"))
+                self.assertEqual(settings["env"], {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80"})
+                settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "400000"
+                settings_path.write_text(json.dumps(settings), encoding="utf-8")
+                self.assertEqual(connector.claude_configuration_status(True, config)["config_status"], "matched")
                 connector.install_claude(config, False, make_backup=False)
+                connector.install_claude(config, True, make_backup=False)
+                connector.install_claude(config, False, make_backup=False)
+                instructions = (claude_dir / "CLAUDE.md").read_text(encoding="utf-8")
+                connector.restore_claude(config)
             settings = json.loads((claude_dir / "settings.json").read_text(encoding="utf-8"))
             self.assertEqual(settings["env"]["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "80")
-            instructions = (claude_dir / "CLAUDE.md").read_text(encoding="utf-8")
+            self.assertEqual(settings["env"]["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "400000")
             self.assertIn(connector.PRAGMAI_CORE_RULES, instructions)
             self.assertNotIn("PragmAI compact instructions", instructions)
+
+    def test_repair_releases_legacy_compaction_overrides_once(self):
+        window = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+        percent = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+        cases = (
+            ("0.7.23", {window: "127000"}, {}, {}),
+            ("0.7.23", {window: "127000"}, {window: "300000", percent: "80"},
+             {window: "300000", percent: "80"}),
+            ("0.7.23", {window: "400000"}, {window: "300000", percent: "80"},
+             {window: "400000"}),
+            ("0.7.23", {window: "127000", percent: "75"}, {percent: "80"}, {percent: "75"}),
+            ("0.7.23", {window: "300000", percent: "80"}, {window: "300000", percent: "80"},
+             {window: "300000", percent: "80"}),
+            ("0.7.21", {window: "400000", percent: "64"}, {percent: "75"},
+             {window: "400000", percent: "75"}),
+        )
+        for version, env, baseline, expected in cases:
+            with self.subTest(version=version, env=env, baseline=baseline), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                settings_path = home / ".claude" / "settings.json"
+                settings_path.parent.mkdir()
+                settings_path.write_text(json.dumps({"env": env}), encoding="utf-8")
+                config_path = home / "config.json"
+                config_path.write_text(json.dumps({
+                    **self.config,
+                    "version": version,
+                    "endpoint": connector.DEFAULT_ENDPOINT,
+                    "installed_clients": ["claude-code"],
+                    "baseline_claude": baseline,
+                }), encoding="utf-8")
+                with (
+                    mock.patch.object(connector.Path, "home", return_value=home),
+                    mock.patch.object(connector, "CONFIG_FILE", config_path),
+                    mock.patch.object(connector, "INSTALL_FILE", MODULE_PATH),
+                    mock.patch("sys.stdout", new_callable=io.StringIO),
+                ):
+                    self.assertEqual(connector.repair(), 0)
+                    self.assertEqual(json.loads(settings_path.read_text()).get("env", {}), expected)
+                    updated = json.loads(config_path.read_text())
+                    self.assertTrue(updated["claude_native_compaction"])
+                    self.assertEqual(updated["active_experiment"]["experiment_id"], connector.EXPERIMENT_ID)
+                    settings = json.loads(settings_path.read_text())
+                    settings.setdefault("env", {})[window] = "127000"
+                    settings_path.write_text(json.dumps(settings), encoding="utf-8")
+                    self.assertEqual(connector.repair(), 0)
+                    self.assertEqual(json.loads(settings_path.read_text())["env"], {**expected, window: "127000"})
 
 
 if __name__ == "__main__":

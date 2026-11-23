@@ -29,7 +29,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler, HTTPSHandler
 
-VERSION = "0.7.23"
+VERSION = "0.7.24"
 LONG_CONTEXT_THRESHOLD_TOKENS = 272_000
 TELEMETRY_VERSION = 9
 TELEMETRY_V9_FIELDS = {"execution_origin", "automation_slot", "automation_run_key"}
@@ -46,7 +46,7 @@ TELEMETRY_V8_FIELDS = {
     "skill_name_counts",
     "subagent_calls",
 }
-EXPERIMENT_ID = "optimization_3day_crossover_v3"
+EXPERIMENT_ID = "optimization_3day_crossover_v4"
 EXPERIMENT_BLOCK_SECONDS = 3 * 24 * 60 * 60
 OPTIMIZATION_MODES = {"experiment", "always_on"}
 CLAUDE_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
@@ -93,13 +93,7 @@ COMPACTION_POLICY = {
     "telemetry_scope": "total",
     "codex_growth_threshold_tokens": 100_000,
     "codex_scope": "body_after_prefix",
-    "claude_reference_context_tokens": 200_000,
 }
-COMPACTION_POLICY["claude_trigger_percent"] = round(
-    100
-    * COMPACTION_POLICY["effective_total_target_tokens"]
-    / COMPACTION_POLICY["claude_reference_context_tokens"]
-)
 CONFIG_PROFILE = COMPACTION_POLICY["profile"]
 INTERNAL_MODELS = {"codex-auto-review"}
 CODE_FILE_SUFFIXES = {
@@ -142,6 +136,19 @@ Discard greetings, repetition, superseded plans, resolved detours, and verbose o
 
 CLAUDE_COMPACT_BLOCK_START = "<!-- PRAGMAI_COMPACTION_START -->"
 CLAUDE_COMPACT_BLOCK_END = "<!-- PRAGMAI_COMPACTION_END -->"
+CLAUDE_COMPACT_GUIDANCE = (
+    "Preserve the user's requirements, decisions, verified facts, blockers, and the next unfinished action. "
+    "Summarize large tool results by finding and evidence location, keeping exact data needed for correctness. "
+    "Tell the resumed assistant to make the next read or tool call narrow, bounded, or paginated, "
+    "and to reuse verified findings from the checkpoint."
+)
+CLAUDE_QUICK_REFILL_GUIDANCE = (
+    " Auto-compaction is starting again after only a few observed model responses. "
+    "Identify the last completed step and give the smallest actionable next step. "
+    "If the conversation shows a large input was reloaded, identify the relevant excerpt or aggregate "
+    "so the resumed assistant can avoid loading it all again. "
+    "If context fills immediately again, tell the user and offer a checkpoint for continuing in a fresh session."
+)
 CODEX_RULES_BLOCK_START = "<!-- PRAGMAI_RULES_START -->"
 CODEX_RULES_BLOCK_END = "<!-- PRAGMAI_RULES_END -->"
 PRAGMAI_CORE_RULES = """## PragmAI managed instructions
@@ -1239,22 +1246,23 @@ def claude_configuration_status(optimization_enabled: bool, config: dict) -> dic
     try:
         settings = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
         instructions = (Path.home() / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
-        expected = claude_optimization_values(config, optimization_enabled)
+        hooks = settings.get("hooks") or {}
+        stop_hooks = hooks.get("Stop", [])
+        guide_installed = any(
+            is_pragmai_command(entry, "claude-compact-guide") for entry in hooks.get("PreCompact", [])
+        )
         accepted_blocks = [claude_compact_block(optimization_enabled)]
         target_version = managed_target_version(config)
         if target_version:
             accepted_blocks.append(claude_compact_block(optimization_enabled, target_version))
         matched = (
-            all((settings.get("env") or {}).get(key) == value for key, value in expected.items())
+            config.get("claude_native_compaction") is True
+            and any(is_pragmai_command(entry, "claude-stop") for entry in stop_hooks)
+            and guide_installed == optimization_enabled
             and any(block in instructions for block in accepted_blocks)
         )
-        return {
-            "configured_compaction_threshold_tokens": (
-                integer((settings.get("env") or {}).get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")) or None
-            ),
-            "config_status": "matched" if matched else "drift",
-        }
-    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return {"config_status": "matched" if matched else "drift"}
+    except (OSError, AttributeError, TypeError, ValueError):
         return {"config_status": "unavailable"}
 
 
@@ -1278,10 +1286,9 @@ def iso_duration_ms(first: str | None, last: str | None) -> int | None:
 def aggregate_usage(
     usages: list[dict],
     cache_write_in_input: bool = True,
-    compaction_threshold: int | None = None,
+    compaction_threshold: int | None = COMPACTION_POLICY["codex_growth_threshold_tokens"],
     price_threshold: int = LONG_CONTEXT_THRESHOLD_TOKENS,
 ) -> dict:
-    compaction_threshold = compaction_threshold or COMPACTION_POLICY["codex_growth_threshold_tokens"]
     calls = []
     for usage in usages:
         fresh = integer(usage.get("input_tokens"))
@@ -1318,7 +1325,9 @@ def aggregate_usage(
         "tokens_reasoning": sum(call["reasoning"] for call in calls),
         "model_calls": len(calls),
         "max_input_tokens_per_call": max(inputs, default=0),
-        "calls_over_compaction_threshold": sum(call["input"] > compaction_threshold for call in calls),
+        "calls_over_compaction_threshold": (
+            sum(value > compaction_threshold for value in inputs) if compaction_threshold else None
+        ),
         "cache_miss_calls": sum(call["input"] > 0 and call["cached"] == 0 for call in calls),
         "long_context_fresh_input_tokens": long_fresh,
         "long_context_cached_input_tokens": sum(call["cached"] for call in long_calls),
@@ -1483,6 +1492,57 @@ def claude_usage(record: dict) -> dict:
     return usage if claude_input_tokens(usage) or integer(usage.get("output_tokens")) else {}
 
 
+def claude_quick_refill(transcript: Path, max_bytes: int = 1_048_576) -> bool:
+    """Look for a recent auto boundary followed by one to three distinct model responses."""
+    if transcript.suffix != ".jsonl" or not transcript.is_file():
+        return False
+    with transcript.open("rb") as handle:
+        start = max(0, handle.seek(0, os.SEEK_END) - max_bytes)
+        handle.seek(start)
+        tail = handle.read(max_bytes)
+    lines = tail.split(b"\n")
+    if start:
+        lines = lines[1:]  # The first record may begin outside the sampled tail.
+    responses = set()
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if not isinstance(record, dict):
+            continue
+        if is_claude_compaction_boundary(record):
+            metadata = record.get("compactMetadata") or record.get("compact_metadata") or {}
+            return metadata.get("trigger") == "auto" and bool(responses)
+        if record.get("isSidechain") is True or not claude_usage(record):
+            continue
+        message_id = record["message"].get("id") or record.get("requestId")
+        if not isinstance(message_id, str) or not message_id:
+            return False
+        responses.add(message_id)
+        if len(responses) > 3:
+            return False
+    return False
+
+
+def claude_compact_guide() -> int:
+    # This synchronous hook returns only fixed instructions. It never sends telemetry.
+    try:
+        payload = json.loads(sys.stdin.read(65_537))
+        if payload.get("hook_event_name") != "PreCompact" or payload.get("trigger") != "auto":
+            return 0
+    except (OSError, AttributeError, ValueError):
+        return 0
+    quick_refill = False
+    try:
+        path = payload.get("transcript_path")
+        if isinstance(path, str) and path:
+            quick_refill = claude_quick_refill(Path(path))
+    except (OSError, AttributeError, KeyError, TypeError, ValueError):
+        pass
+    print(CLAUDE_COMPACT_GUIDANCE + (CLAUDE_QUICK_REFILL_GUIDANCE if quick_refill else ""))
+    return 0
+
+
 def compaction_measurements_for_claude(
     records: list[dict], exchange_start: int = 0, window_start: int = 0,
     window_end: int | None = None,
@@ -1620,14 +1680,11 @@ def claude_event(payload: dict, config: dict) -> dict | None:
     optimization = active_optimization_state(config)
     optimization_enabled = optimization["optimization_enabled"]
     configuration = claude_configuration_status(optimization_enabled, config)
-    compaction_threshold = (
-        COMPACTION_POLICY["effective_total_target_tokens"]
-        if optimization_enabled else configuration.get("configured_compaction_threshold_tokens")
-    )
     usage_metrics = aggregate_usage(
         usages,
         cache_write_in_input=False,
-        compaction_threshold=compaction_threshold,
+        # The native threshold can differ from the window observed in settings.
+        compaction_threshold=None,
         price_threshold=100_000 if re.fullmatch(r"claude-haiku-5-5(?:-[0-9]+)?", model.lower()) else LONG_CONTEXT_THRESHOLD_TOKENS,
     )
     extended_activity = claude_extended_activity(exchange_records)
@@ -1635,8 +1692,6 @@ def claude_event(payload: dict, config: dict) -> dict | None:
     effort_level = effort.get("level") if isinstance(effort, dict) else None
     if effort_level not in CLAUDE_EFFORT_LEVELS:
         effort_level = "unknown"
-    if not compaction_threshold:
-        usage_metrics["calls_over_compaction_threshold"] = None
     event = {
         "event_id": private_digest("claude_", f"{session_id}:{exchange_marker}", config["fingerprint_key"]),
         "occurred_at": last_timestamp or datetime.now(timezone.utc).isoformat(),
@@ -1656,9 +1711,8 @@ def claude_event(payload: dict, config: dict) -> dict | None:
         "post_tool_model_calls": post_tool_calls,
         "continuation_model_calls": continuation_calls,
         "compaction_measurements": compaction_measurements,
-        "config_profile": CONFIG_PROFILE if optimization_enabled else "baseline",
-        "compaction_threshold_tokens": compaction_threshold,
-        "compaction_scope": "approximate_total" if optimization_enabled else "unavailable",
+        "config_profile": "unknown" if optimization_enabled else "baseline",
+        "compaction_scope": "unavailable",
         "billing_mode": config.get("billing_mode", "subscription"),
         "connector_version": VERSION,
         "telemetry_version": TELEMETRY_VERSION,
@@ -2277,29 +2331,36 @@ def remove_managed_block(text: str, start: str, end: str) -> str:
     return f"{cleaned}\n" if cleaned else ""
 
 
-def claude_optimization_values(config: dict, optimization_enabled: bool) -> dict:
-    if optimization_enabled:
-        # An absolute window avoids interpreting 64% against a native 1M window.
-        return {"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": None,
-                "CLAUDE_CODE_AUTO_COMPACT_WINDOW": str(COMPACTION_POLICY["effective_total_target_tokens"])}
-    baseline = config.get("baseline_claude")
-    baseline = baseline if isinstance(baseline, dict) else {}
-    return {key: baseline.get(key) for key in (
-        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "CLAUDE_CODE_AUTO_COMPACT_WINDOW")}
-
-
-def capture_claude_baseline(config: dict, environment: dict) -> None:
-    if "baseline_claude" in config:
+def restore_managed_claude_compaction(config: dict, settings: dict) -> None:
+    """Release a legacy compaction override while preserving manual settings."""
+    if config.get("claude_native_compaction") is True:
         return
-    previous = bool(config.get("previous_pragmai_version"))
-    config["baseline_claude"] = {
-        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": (
-            None if previous else environment.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
-        ),
-        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": (
-            environment.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
-        ),
-    }
+    environment = settings.get("env")
+    if not isinstance(environment, dict):
+        return
+    baseline = config.get("baseline_claude")
+    if not isinstance(baseline, dict):
+        return
+    version = config.get("previous_pragmai_version") or config.get("version")
+    percent = "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"
+    window = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+    if version == "0.7.23":
+        if environment.get(window) != "127000":
+            return
+        keys = [window]
+        if percent not in environment:
+            keys.append(percent)
+    elif environment.get(percent) == "64":
+        keys = [percent]
+    else:
+        return
+    for key in keys:
+        if baseline.get(key) is None:
+            environment.pop(key, None)
+        else:
+            environment[key] = baseline[key]
+    if not environment:
+        settings.pop("env")
 
 
 def install_claude(config: dict | None = None, optimization_enabled: bool = True, make_backup: bool = True) -> list[str]:
@@ -2315,15 +2376,7 @@ def install_claude(config: dict | None = None, optimization_enabled: bool = True
     stop_hooks = hooks.setdefault("Stop", [])
     if not isinstance(stop_hooks, list):
         raise RuntimeError("Claude Stop hooks must contain a list.")
-    environment = original.setdefault("env", {})
-    if not isinstance(environment, dict):
-        raise RuntimeError("Claude settings env must contain an object.")
-    capture_claude_baseline(config, environment)
-    for key, value in claude_optimization_values(config, optimization_enabled).items():
-        if value is None:
-            environment.pop(key, None)
-        else:
-            environment[key] = value
+    restore_managed_claude_compaction(config, original)
     command = claude_hook_command(installed_command("claude-stop"))
     existing_pragmai = [
         index for index, entry in enumerate(stop_hooks) if is_pragmai_command(entry, "claude-stop")
@@ -2336,6 +2389,17 @@ def install_claude(config: dict | None = None, optimization_enabled: bool = True
     else:
         stop_hooks.append({"matcher": "", "hooks": [{"type": "command", "command": command, "timeout": 30}]})
     install_native_hooks(hooks, "claude-code")
+    pre_compact = hooks["PreCompact"]
+    pre_compact[:] = [entry for entry in pre_compact if not is_pragmai_command(entry, "claude-compact-guide")]
+    if optimization_enabled:
+        pre_compact.append({
+            "matcher": "auto",
+            "hooks": [{
+                "type": "command",
+                "command": claude_hook_command(installed_command("claude-compact-guide")),
+                "timeout": 2,
+            }],
+        })
     status = original.get("statusLine")
     if status is None or isinstance(status, dict) and status.get("type") == "command":
         if not is_pragmai_command(status, "claude-status"):
@@ -2352,6 +2416,7 @@ def install_claude(config: dict | None = None, optimization_enabled: bool = True
         CLAUDE_COMPACT_BLOCK_END,
     )
     atomic_write(claude_instructions, instructions_updated)
+    config["claude_native_compaction"] = True
     return [
         str(settings),
         str(claude_instructions),
@@ -2900,7 +2965,11 @@ def restore_claude(config: dict) -> int:
         if isinstance(hooks, dict):
             for native_event, entries in list(hooks.items()):
                 if isinstance(entries, list):
-                    hooks[native_event] = [entry for entry in entries if not is_pragmai_command(entry, "claude-native")]
+                    hooks[native_event] = [
+                        entry for entry in entries
+                        if not is_pragmai_command(entry, "claude-native")
+                        and not is_pragmai_command(entry, "claude-compact-guide")
+                    ]
                     if not hooks[native_event]:
                         hooks.pop(native_event)
             stop_hooks = hooks.get("Stop")
@@ -2918,20 +2987,7 @@ def restore_claude(config: dict) -> int:
                 settings.pop("statusLine", None)
             else:
                 settings["statusLine"] = prior
-        environment = settings.get("env")
-        if not isinstance(environment, dict):
-            environment = {}
-            settings["env"] = environment
-        baseline = config.get("baseline_claude")
-        baseline = baseline if isinstance(baseline, dict) else {}
-        for key in ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "CLAUDE_CODE_AUTO_COMPACT_WINDOW"):
-            value = baseline.get(key)
-            if value is None:
-                environment.pop(key, None)
-            else:
-                environment[key] = value
-        if not environment:
-            settings.pop("env", None)
+        restore_managed_claude_compaction(config, settings)
         updated_text = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
         if updated_text != original_text:
             backup(settings_path)
@@ -3242,7 +3298,10 @@ def install(args) -> int:
     }
     if previous_config:
         config["previous_pragmai_version"] = previous_config.get("version", "legacy")
-        for key in ("baseline_codex", "baseline_codex_notify", "baseline_claude", "baseline_claude_statusline", "chained_notify"):
+        for key in (
+            "baseline_codex", "baseline_codex_notify", "baseline_claude", "baseline_claude_statusline",
+            "claude_native_compaction", "chained_notify",
+        ):
             if key in previous_config:
                 config[key] = previous_config[key]
     config["installed_clients"] = selected_clients
@@ -3279,6 +3338,7 @@ def parser() -> argparse.ArgumentParser:
     notify.add_argument("payload")
     commands.add_parser("claude-stop")
     commands.add_parser("claude-native")
+    commands.add_parser("claude-compact-guide", help=argparse.SUPPRESS)
     commands.add_parser("codex-native")
     commands.add_parser("claude-status")
     otel = commands.add_parser("claude-otel-serve")
@@ -3306,6 +3366,8 @@ def main() -> int:
             return codex_notify(args.payload)
         if args.command in {"claude-native", "codex-native"}:
             return native_hook("claude-code" if args.command == "claude-native" else "codex")
+        if args.command == "claude-compact-guide":
+            return claude_compact_guide()
         if args.command == "claude-otel-serve":
             return serve_claude_otel(args.port)
         if args.command == "claude-status":
